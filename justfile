@@ -1,55 +1,36 @@
 alias b := build
 alias c := check
-alias d := delete
 alias f := fmt
 alias r := run
 alias rr := run-release
-alias h := hot
+alias t := test
 
 _default:
-    @just --list --list-heading $'bonsai\n'
+    @just --list
 
-# Build `bonsai`
+# Build the Rhombus desktop client
 build:
-    cargo build
+    cargo build --locked
 
-# Check code: formatting, compilation, and linting
+# Check formatting, compilation, linting, and tests
 check:
-    cargo +nightly fmt --all -- --check
-    cargo check
-    cargo clippy -- -D warnings
+    cargo fmt --all -- --check
+    cargo check --locked
+    cargo clippy --locked --all-targets -- -D warnings
+    cargo test --locked
 
-# Delete files: data-signet, settings, target, lockfile
-delete item="data-signet":
-    just _delete-{{ item }}
-
-# Format code
+# Format the client with stable rustfmt
 fmt:
-    cargo +nightly fmt
+    cargo fmt --all
 
-# Run the code
+# Run the desktop client
 run:
-    cargo run
+    cargo run --locked
 
-# Run the code in release mode
+# Run the desktop client in release mode
 run-release:
-    cargo run --release
+    cargo run --release --locked
 
-# Run with experimental hot-reloading (will crash if the node is active)
-hot:
-    cargo hot --features hot-reloading
-
-# Delete signet chaindata
-_delete-data-signet:
-    rm -rf ~/.bonsai/signet
-    rm -rf ~/.bonsai/bitcoin
-
-# Delete settings file
-_delete-settings:
-    rm ~/.bonsai/bonsai.toml
-
-_delete-target:
-    rm -rf target/
-
-_delete-lockfile:
-    rm -f Cargo.lock
+# Run unit and local RPC fixture tests
+test:
+    cargo test --locked

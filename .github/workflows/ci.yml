@@ -19,8 +19,10 @@ jobs:
       - name: setup just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
 
-      - name: install nightly rustfmt
-        run: rustup toolchain install nightly --component rustfmt --profile minimal
+      - name: install stable Rust
+        run: rustup toolchain install stable --component rustfmt --component clippy --profile minimal
+      - name: use stable Rust
+        run: rustup default stable
 
       - name: rust cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.9.1

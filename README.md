@@ -1,138 +1,165 @@
-<div align="center">
-  <h1>Bonsai 盆栽</h1>
+# Rhombus
 
-  <img src="assets/icon/bonsai-dark.png" width="220px">
+A desktop dashboard for [Rhombus](https://github.com/zkmagnus/Rhombus), the
+shielded `$BUS` blockchain. Rhombus uses Rust and [Iced](https://iced.rs) to show
+node activity, Tor peers, mining readiness, blocks, transactions, and wallet
+balances through Rhombus's authenticated local JSON-RPC interfaces.
 
-  <p>
-    <strong>A desktop bitcoin wallet with an embedded full node</strong>
-    <br/>
-    <strong>Powered by
-      <a href="https://github.com/bitcoindevkit/bdk_wallet">BDK<a/>
-      and
-      <a href="https://github.com/getfloresta/Floresta">Floresta<a/>
-    </strong>
-  </p>
-</div>
+This adaptation follows the RPC interfaces at Rhombus commit
+[`7a97c456`](https://github.com/zkmagnus/Rhombus/tree/7a97c4560d01cb1dcdf251df7be1f940fca92f80).
+Rhombus is experimental. Its transfers use Halo2 proofs and ML-KEM coin payload
+encryption; ML-KEM does not make the proof system or spending authorization fully
+post-quantum.
 
-# About
+See [validation notes](docs/validation.md) for the checks performed and their limits.
 
-Bonsai is built as a showcase of [`bdk_floresta`](https://github.com/luisschwab/bdk-floresta),
-a novel chain-source crate for [`BDK`](https://github.com/bitcoindevkit/bdk_wallet), which embbeds
-[`Floresta`](https://github.com/getfloresta/Floresta), an extremely lightweight full-node
-implementation that leverages [`Utreexo`](https://eprint.iacr.org/2019/611.pdf) to keep a compact
-representation of the UTXO set in under 2KB, and a small memory footprint. It allows wallet
-synching with zero requests to untrusted third-party APIs. The vast majority of wallets rely
-on third-party indexing servers (e.g. Esplora and Electrum protocols), which represent a huge privacy leak for users due to
-IP address and Bitcoin address correlation. Removing this security hole is a must for sovereign
-Bitcoin usage.
+## What the GUI supports
 
-This application aims to show to developers the full set of capablities that
-[`bdk_floresta`](https://github.com/luisschwab/bdk-floresta) allows for building wallet
-applications with a nice and sleek user interface.
+| Tab | Data and actions |
+| --- | --- |
+| Overview | Chain height, synchronization, tip hash, peers, mempool, and uptime |
+| Network | Tor peer endpoints, connection direction, handshake readiness, height, and latency |
+| Mining | Readiness and wait reasons, local block outcomes, work rate, and mining parameters |
+| Explorer | Look up a block by height or hash, or a transaction by its hash |
+| Wallet | Spendable, locked, pending, and total balance; scan status; current receive address and copy action |
+| Settings | Configure and connect local node and wallet RPC endpoints |
+| About | Project and protocol information |
 
-> [!NOTE]
-> Bonsai, [`bdk_floresta`](https://github.com/luisschwab/bdk_floresta),
-> and [`Floresta`](https://github.com/getfloresta/Floresta) are still a work in progress,
-> meaning that functionality is limited. Bonsai will be updated accordingly.
+Node and wallet queries are read-only. The GUI does not start or stop node
+processes, change peers, enable mining, create wallets, or send transactions.
+These operations remain with the Rhombus binaries. The former embedded
+Bitcoin/Floresta backend and Utreexo views are replaced by Rhombus RPC views.
 
-# Running
+Public block data cannot reveal shielded recipients or balances. Wallet data
+comes from the separate wallet daemon that holds the corresponding wallet keys.
+BUS amounts use eight decimal places, with integer conversion from the RPC's
+smallest-unit strings.
 
-To run `bonsai`, run:
+## Build and run
 
-```console
-~$ cargo run --release
+Install a current stable [Rust toolchain](https://rustup.rs). Build the Rhombus desktop client from
+this repository:
+
+```sh
+cargo run --release --locked
 ```
 
-# Developing
+This repository builds a standalone desktop client named `rhombus` at
+`target/release/rhombus`. Building it does not require a sibling node checkout,
+and it does not compile the Rhombus node or its proof system. A graphical
+desktop session is required to open the application.
 
-This application is written in Rust. You need to have
-[`cargo`](https://doc.rust-lang.org/stable/cargo/) installed.
+The upstream node CLI also uses the binary name `rhombus`. Keep the two builds
+separate and launch each with its own full path when using them together.
 
-[`just`](https://github.com/casey/just) is used as a convenience tool for command running,
-installing it is advised.
+## Connect a Rhombus node
 
-```console
-# List available commands
-~$ just
-bonsai
-    build                     # Build `bonsai` [alias: b]
-    check                     # Check code: formatting, compilation, and linting [alias: c]
-    delete item="data-signet" # Delete files: data-signet, settings, target, lockfile [alias: d]
-    fmt                       # Format code [alias: f]
-    hot                       # Run with experimental hot-reloading (will crash if the node is active) [alias: h]
-    run                       # Run the code [alias: r]
-    run-release               # Run the code in release mode [alias: rr]
+Build the Rhombus node separately using its
+[build instructions](https://github.com/zkmagnus/Rhombus/blob/master/BUILD.md).
+Run the following example **from the upstream node repository**, not this
+desktop client repository:
 
-# Run the application in release mode
-~$ just run-release
+```sh
+cargo build --release --locked -p runtime --bins
+mkdir -p local-test
+chmod 700 local-test
+
+target/release/rhombus run --network test --datadir local-test/node-a \
+  --p2p-port 19000 --rpc 127.0.0.1:18444 --rpc-http 127.0.0.1:18443
 ```
 
-# Tabs
+This starts a local test-network node without enabling mining. Rhombus has no
+built-in public bootstrap peers. To join an existing chain, configure its valid
+v3 onion peers with `--addnode`, `--connect`, or `--seed`, following the
+[operations guide](https://github.com/zkmagnus/Rhombus/blob/master/docs/operations.md).
+Tor service readiness alone does not establish chain synchronization.
 
-Bonsai has a few tabs that allow the user to monitor, configure and interact with the embedded node.
+In the desktop client's **Settings** tab:
 
-## Wallet
+1. Set the node endpoint to `http://127.0.0.1:18443/`.
+2. Enter the contents of the node's `local-test/node-a/rpc.token` file in the
+   node token field.
+3. Connect to load the node dashboard.
 
-WIP
+Use the HTTP JSON-RPC port (`18443` in this example), not the line-protocol RPC
+port (`18444`). Node and wallet endpoints must use `http://127.0.0.1:<port>/`.
+The client disables HTTP proxies and redirects. Rhombus itself handles peer and
+remote-node traffic through embedded Arti; the desktop client connects only to local RPC.
 
-## Metrics
+## Connect a wallet
 
-<div align="center">
-  <img src="assets/showcase/metrics.gif" width="600">
-</div>
+The wallet view is optional and uses its own connection and token. Create or
+restore a wallet with the Rhombus CLI first. For example, from the upstream node repository:
 
-In the **Metrics** tab, the user can `START`, `RESTART` and `STOP` the node, see node
-metrics (such as node status, IBD progress, uptime, user agent and peer count), and monitor the
-node's logs.
+```sh
+target/release/rhombus create --network test --wallet local-test/wallet.redb
+```
 
-## Network
+Keep the printed recovery phrase private. After the CLI releases the database,
+start the wallet daemon. Replace the onion placeholder with the node's hostname
+reported after service readiness:
 
-<div align="center">
-  <img src="assets/showcase/network.png" width="600">
-</div>
+```sh
+RHOMBUS_ONION_A='<node-a-v3-hostname>.onion'
+target/release/wallet --network test --wallet local-test/wallet.redb \
+  --node "$RHOMBUS_ONION_A:18444" --datadir local-test/wallet-daemon \
+  --node-token-file local-test/node-a/rpc.token --listen 127.0.0.1:18447
+```
 
-In the **Network** tab, the user can see information about peers the node is connected to,
-connect to new peer, disconnect or ban a peer, and see a dynamic diagram of the node's network
-messages (WIP).
+The wallet daemon uses independent Tor state to reach the node. Its local HTTP
+endpoint defaults in the desktop client to `http://127.0.0.1:18447/`. Enter the daemon's
+`wallet-rpc.token`, stored beside the wallet database, in the desktop client's **wallet token**
+field, then connect. This token differs from the node token. Keep the wallet and
+node on the same network, and do not open the wallet database concurrently from
+another process.
 
-## Utreexo
+Rhombus displays the wallet's current receive address without allocating a new
+one. Address rotation, scanning, and recovery rules remain under the Rhombus
+wallet's control; see its
+[address rotation guide](https://github.com/zkmagnus/Rhombus/blob/master/docs/address-rotation.md).
 
-In the **Utreexo** tab, the user can see statistics about the Utreexo accumulator,
-such as leaf count, root count, accumulator and proof cache size, as well as a dynamic QR code
-that allows exporting the node's validation. This can be scanned by other devices
-so that they can start running at the same height as Bonsai without trust assumptions.
+## Settings and credentials
 
-<div align="center">
-  <img src="assets/showcase/utreexo.gif" width="600">
-</div>
+**Save settings** persists endpoint addresses in
+`<platform configuration directory>/rhombus/settings.toml`, using
+`dirs::config_dir()`. On Linux this is normally
+`~/.config/rhombus/settings.toml`.
 
-## Blockchain
+RPC tokens are masked in the GUI, kept in memory, and excluded from the settings
+file. Enter them again after reopening Rhombus. Connecting requires an explicit
+user action; saved endpoints do not trigger automatic connections. Credentials
+are separate for the node and the wallet.
 
-In the **Blockchain** tab, the user can see a live feed of validated blocks, as well as inspect any
-block by fetching them from the P2P network.
+## Development
 
-<div align="center">
-  <img src="assets/showcase/blockchain.gif" width="600">
-</div>
+[`just`](https://github.com/casey/just) is optional:
 
-## Settings
+```sh
+just                 # List commands
+just run             # Run a debug build
+just run-release     # Run a release build
+just check           # Formatting, compilation, linting, and tests
+```
 
-In the **Settings** tab, the user can tweak the node's seetings as they please,
-including switching the network, setting a custom user agent, SOCKS5 proxy,
-fixed peer, and maximum number of outbound peers.
+The equivalent checks are:
 
-<div align="center">
-  <img src="assets/showcase/settings.png" width="600">
-</div>
+```sh
+cargo fmt --all -- --check
+cargo check --locked
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+```
 
-## About
+RPC tests use local fixtures and mock responses. They do not validate live Tor
+connectivity, consensus, wallet recovery, or proof generation in Rhombus.
 
-<div align="center">
-  <img src="assets/showcase/about.png" width="600">
-</div>
+## Credits and license
 
-# Acknowledgements
-- [Utreexo](https://eprint.iacr.org/2019/611), for the novel UTXO set accumulator scheme that makes embedded nodes possible.
-- [Floresta](https://github.com/getfloresta/Floresta), for the set of libraries which this application is built upon.
-- [iced-rs](https://github.com/iced-rs/iced), for the GUI framework used to implement this.
-- [US Graphics Company](https://usgraphics.com), for the beautiful [`Berkeley Mono`](https://usgraphics.com/products/berkeley-mono) font.
+This desktop client is adapted from Bonsai, [Luis Schwab's desktop Bitcoin wallet and embedded node
+showcase](https://github.com/luisschwab/bonsai). This GUI adaptation retains the
+Bonsai project's [MIT license](LICENSE) and attribution.
+
+The upstream Rhombus protocol and daemons use GPL-3.0-or-later. This client
+communicates with its external binaries over JSON-RPC. See the
+[Rhombus repository](https://github.com/zkmagnus/Rhombus) for protocol source,
+licenses, and operational documentation.

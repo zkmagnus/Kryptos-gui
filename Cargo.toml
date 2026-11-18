@@ -1,43 +1,31 @@
 [package]
-name = "bonsai"
-version = "0.1.0"
+name = "rhombus"
+version = "0.2.0"
 edition = "2024"
+rust-version = "1.88"
 authors = ["Luis Schwab <dev@luisschwab.net>"]
-description = "A desktop bitcoin wallet with an embedded Utreexo full node"
-repository = "https://github.com/luisschwab/bonsai"
+description = "A desktop dashboard and wallet viewer for the Rhombus shielded blockchain"
+repository = "https://github.com/zkmagnus/Rhombus-GUI"
 readme = "README.md"
 license = "MIT"
-keywords = ["bitcoin", "wallet", "bdk", "utreexo", "floresta"]
+keywords = ["rhombus", "wallet", "desktop", "privacy", "blockchain"]
 
 [[bin]]
-name = "bonsai"
-path = "src/bonsai.rs"
+name = "rhombus"
+path = "src/main.rs"
 
 [features]
 hot-reloading = ["iced/hot"]
 
 [package.metadata.bundle]
-name = "bonsai"
-icon = ["assets/icon/bonsai.icns"]
+name = "Rhombus"
 
 [dependencies]
-bdk-floresta = { git = "https://github.com/luisschwab/bdk-floresta", rev = "6ebd38c9ee92842ae3256c36c91c59e2e4e8cb5a", default-features = false }
-bdk_wallet = { version = "=3.1.0" }
-bitcoin = { version = "=0.32.8" }
-chrono = { version = "=0.4.45" }
-dirs = { version = "=6.0.0" }
-hex = { version = "=0.4.3" }
-iced = { version = "=0.14.0", features = ["tokio", "image", "qr_code"] }
-maxminddb = { version = "=0.28.1", features = ["mmap"] }
-memmap2 = { version = "=0.9.11" }
-once_cell = { version = "=1.21.4" }
-open = { version = "=5.3.5" }
-regex = { version = "=1.12.4" }
-rustls-webpki = { version = "=0.103.13" }
+dirs = "=6.0.0"
+iced = { version = "=0.14.0", default-features = false, features = ["tiny-skia", "crisp", "web-colors", "thread-pool", "linux-theme-detection", "x11", "wayland", "tokio"] }
+open = "=5.3.5"
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 serde = { version = "=1.0.228", features = ["derive"] }
-thiserror = { version = "=2.0.18" }
-tokio = { version = "=1.52.3", features = ["full"] }
-toml = { version = "=1.1.2" }
-tracing = { version = "=0.1.44" }
-tracing-appender = { version = "=0.2.5" }
-tracing-subscriber = { version = "=0.3.23", features = ["env-filter", "fmt", "time"] }
+serde_json = "1"
+tokio = { version = "=1.52.3", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+toml = "=1.1.2"
