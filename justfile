@@ -8,7 +8,7 @@ alias t := test
 _default:
     @just --list
 
-# Build the Rhombus desktop client
+# Build Kryptos
 build:
     cargo build --locked
 

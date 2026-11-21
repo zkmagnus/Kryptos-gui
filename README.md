@@ -1,13 +1,12 @@
-# Rhombus
+# Kryptos
 
-A desktop dashboard for [Rhombus](https://github.com/zkmagnus/Rhombus), the
-shielded `$BUS` blockchain. Rhombus uses Rust and [Iced](https://iced.rs) to show
+[Kryptos](https://github.com/zkmagnus/Kryptos-gui) is a desktop dashboard for [Kryptos](https://github.com/zkmagnus/Kryptos), the
+shielded `$K` blockchain. Kryptos uses Rust and [Iced](https://iced.rs) to show
 node activity, Tor peers, mining readiness, blocks, transactions, and wallet
-balances through Rhombus's authenticated local JSON-RPC interfaces.
+balances through Kryptos's authenticated local JSON-RPC interfaces.
 
-This adaptation follows the RPC interfaces at Rhombus commit
-[`7a97c456`](https://github.com/zkmagnus/Rhombus/tree/7a97c4560d01cb1dcdf251df7be1f940fca92f80).
-Rhombus is experimental. Its transfers use Halo2 proofs and ML-KEM coin payload
+This desktop client connects to the Kryptos node and wallet through their local JSON-RPC interfaces.
+Kryptos is experimental. Its transfers use Halo2 proofs and ML-KEM coin payload
 encryption; ML-KEM does not make the proof system or spending authorization fully
 post-quantum.
 
@@ -27,35 +26,31 @@ See [validation notes](docs/validation.md) for the checks performed and their li
 
 Node and wallet queries are read-only. The GUI does not start or stop node
 processes, change peers, enable mining, create wallets, or send transactions.
-These operations remain with the Rhombus binaries. The former embedded
-Bitcoin/Floresta backend and Utreexo views are replaced by Rhombus RPC views.
+These operations remain with the Kryptos binaries. The former embedded
+Bitcoin/Floresta backend and Utreexo views are replaced by Kryptos RPC views.
 
 Public block data cannot reveal shielded recipients or balances. Wallet data
 comes from the separate wallet daemon that holds the corresponding wallet keys.
-BUS amounts use eight decimal places, with integer conversion from the RPC's
+K amounts use eight decimal places, with integer conversion from the RPC's
 smallest-unit strings.
 
 ## Build and run
 
-Install a current stable [Rust toolchain](https://rustup.rs). Build the Rhombus desktop client from
-this repository:
+Install a current stable [Rust toolchain](https://rustup.rs). Build Kryptos from this repository:
 
 ```sh
 cargo run --release --locked
 ```
 
-This repository builds a standalone desktop client named `rhombus` at
-`target/release/rhombus`. Building it does not require a sibling node checkout,
-and it does not compile the Rhombus node or its proof system. A graphical
+This repository builds a standalone desktop client named `kryptos` at
+`target/release/kryptos`. Building it does not require a sibling node checkout,
+and it does not compile the Kryptos node or its proof system. A graphical
 desktop session is required to open the application.
 
-The upstream node CLI also uses the binary name `rhombus`. Keep the two builds
-separate and launch each with its own full path when using them together.
+## Connect a Kryptos node
 
-## Connect a Rhombus node
-
-Build the Rhombus node separately using its
-[build instructions](https://github.com/zkmagnus/Rhombus/blob/master/BUILD.md).
+Build the Kryptos node separately using its
+[build instructions](https://github.com/zkmagnus/Kryptos/blob/master/BUILD.md).
 Run the following example **from the upstream node repository**, not this
 desktop client repository:
 
@@ -64,14 +59,14 @@ cargo build --release --locked -p runtime --bins
 mkdir -p local-test
 chmod 700 local-test
 
-target/release/rhombus run --network test --datadir local-test/node-a \
+target/release/kryptos run --network test --datadir local-test/node-a \
   --p2p-port 19000 --rpc 127.0.0.1:18444 --rpc-http 127.0.0.1:18443
 ```
 
-This starts a local test-network node without enabling mining. Rhombus has no
+This starts a local test-network node without enabling mining. Kryptos has no
 built-in public bootstrap peers. To join an existing chain, configure its valid
 v3 onion peers with `--addnode`, `--connect`, or `--seed`, following the
-[operations guide](https://github.com/zkmagnus/Rhombus/blob/master/docs/operations.md).
+[operations guide](https://github.com/zkmagnus/Kryptos/blob/master/docs/operations.md).
 Tor service readiness alone does not establish chain synchronization.
 
 In the desktop client's **Settings** tab:
@@ -83,16 +78,16 @@ In the desktop client's **Settings** tab:
 
 Use the HTTP JSON-RPC port (`18443` in this example), not the line-protocol RPC
 port (`18444`). Node and wallet endpoints must use `http://127.0.0.1:<port>/`.
-The client disables HTTP proxies and redirects. Rhombus itself handles peer and
+The client disables HTTP proxies and redirects. Kryptos itself handles peer and
 remote-node traffic through embedded Arti; the desktop client connects only to local RPC.
 
 ## Connect a wallet
 
 The wallet view is optional and uses its own connection and token. Create or
-restore a wallet with the Rhombus CLI first. For example, from the upstream node repository:
+restore a wallet with the Kryptos CLI first. For example, from the upstream node repository:
 
 ```sh
-target/release/rhombus create --network test --wallet local-test/wallet.redb
+target/release/kryptos create --network test --wallet local-test/wallet.redb
 ```
 
 Keep the printed recovery phrase private. After the CLI releases the database,
@@ -100,9 +95,9 @@ start the wallet daemon. Replace the onion placeholder with the node's hostname
 reported after service readiness:
 
 ```sh
-RHOMBUS_ONION_A='<node-a-v3-hostname>.onion'
+KRYPTOS_ONION_A='<node-a-v3-hostname>.onion'
 target/release/wallet --network test --wallet local-test/wallet.redb \
-  --node "$RHOMBUS_ONION_A:18444" --datadir local-test/wallet-daemon \
+  --node "$KRYPTOS_ONION_A:18444" --datadir local-test/wallet-daemon \
   --node-token-file local-test/node-a/rpc.token --listen 127.0.0.1:18447
 ```
 
@@ -113,10 +108,10 @@ field, then connect. This token differs from the node token. Keep the wallet and
 node on the same network, and do not open the wallet database concurrently from
 another process.
 
-Rhombus displays the wallet's current receive address without allocating a new
-one. Address rotation, scanning, and recovery rules remain under the Rhombus
+Kryptos displays the wallet's current receive address without allocating a new
+one. Address rotation, scanning, and recovery rules remain under the Kryptos
 wallet's control; see its
-[address rotation guide](https://github.com/zkmagnus/Rhombus/blob/master/docs/address-rotation.md).
+[address rotation guide](https://github.com/zkmagnus/Kryptos/blob/master/docs/address-rotation.md).
 
 ## Settings and credentials
 
@@ -126,7 +121,7 @@ wallet's control; see its
 `~/.config/rhombus/settings.toml`.
 
 RPC tokens are masked in the GUI, kept in memory, and excluded from the settings
-file. Enter them again after reopening Rhombus. Connecting requires an explicit
+file. Enter them again after reopening Kryptos. Connecting requires an explicit
 user action; saved endpoints do not trigger automatic connections. Credentials
 are separate for the node and the wallet.
 
@@ -151,7 +146,7 @@ cargo test --locked
 ```
 
 RPC tests use local fixtures and mock responses. They do not validate live Tor
-connectivity, consensus, wallet recovery, or proof generation in Rhombus.
+connectivity, consensus, wallet recovery, or proof generation in Kryptos.
 
 ## Credits and license
 
@@ -159,7 +154,7 @@ This desktop client is adapted from Bonsai, [Luis Schwab's desktop Bitcoin walle
 showcase](https://github.com/luisschwab/bonsai). This GUI adaptation retains the
 Bonsai project's [MIT license](LICENSE) and attribution.
 
-The upstream Rhombus protocol and daemons use GPL-3.0-or-later. This client
+The upstream Kryptos protocol and daemons use GPL-3.0-or-later. This client
 communicates with its external binaries over JSON-RPC. See the
-[Rhombus repository](https://github.com/zkmagnus/Rhombus) for protocol source,
+[Kryptos repository](https://github.com/zkmagnus/Kryptos) for protocol source,
 licenses, and operational documentation.

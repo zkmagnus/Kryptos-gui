@@ -2,7 +2,7 @@ mod rhombus;
 
 fn main() -> iced::Result {
     iced::application(rhombus::App::new, rhombus::App::update, rhombus::view::view)
-        .title("Rhombus")
+        .title("Kryptos")
         .theme(rhombus::view::theme)
         .subscription(rhombus::App::subscription)
         .window(iced::window::Settings {

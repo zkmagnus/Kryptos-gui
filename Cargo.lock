@@ -2593,7 +2593,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rhombus"
+name = "kryptos"
 version = "0.2.0"
 dependencies = [
  "dirs",

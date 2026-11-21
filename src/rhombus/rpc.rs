@@ -159,8 +159,8 @@ fn decode_response(body: Value, id: u64) -> Result<Value, String> {
             -32601 => "This method is unavailable on the selected daemon".into(),
             -32602 => "The daemon rejected the lookup parameters".into(),
             -1 => "The requested block or transaction was not found".into(),
-            -3 => "The Rhombus node has stopped".into(),
-            _ => format!("Rhombus RPC failed (code {code})"),
+            -3 => "The Kryptos node has stopped".into(),
+            _ => format!("Kryptos RPC failed (code {code})"),
         });
     }
     body.get("result")
@@ -354,7 +354,7 @@ pub(crate) async fn lookup(
     Ok(result)
 }
 
-/// Converts raw Rhombus units to BUS without rounding through floating point.
+/// Converts raw Kryptos units to K without rounding through floating point.
 pub(crate) fn format_bus(raw: &str) -> String {
     let Ok(raw) = raw.parse::<u64>() else {
         return "—".to_owned();

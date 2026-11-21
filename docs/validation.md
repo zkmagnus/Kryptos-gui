@@ -1,4 +1,4 @@
-# Rhombus GUI validation
+# Kryptos validation
 
 Compatibility reference: Rhombus `7a97c4560d01cb1dcdf251df7be1f940fca92f80`.
 

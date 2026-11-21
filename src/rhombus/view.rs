@@ -44,7 +44,7 @@ const MONO: Font = Font::MONOSPACE;
 
 pub(crate) fn theme(_: &App) -> Theme {
     Theme::custom(
-        "Rhombus",
+        "Kryptos",
         iced::theme::Palette {
             background: BG,
             text: TEXT,
@@ -286,7 +286,7 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
             row![
                 text("◇").size(46).color(ACCENT),
                 column![
-                    text("RHOMBUS").size(22).font(BOLD),
+                    text("KRYPTOS").size(22).font(BOLD),
                     text("SHIELDED BLOCKCHAIN").size(10).color(ACCENT),
                 ]
                 .spacing(3),
@@ -297,13 +297,13 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
             navigation,
             Space::new().height(Length::Fill),
             horizontal_rule(1),
-            text("$BUS  /  SHIELDED")
+            text("$K  /  SHIELDED")
                 .font(MONO)
                 .wrapping(Wrapping::WordOrGlyph)
                 .size(11)
                 .color(ACCENT),
             muted("Tor-only peer network"),
-            muted(format!("Rhombus {}", env!("CARGO_PKG_VERSION"))),
+            muted(format!("Kryptos {}", env!("CARGO_PKG_VERSION"))),
         ]
         .spacing(12),
     )
@@ -325,7 +325,7 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
     let (title, subtitle) = match app.tab {
         Tab::Overview => (
             "Your node, at a glance",
-            "Live insight into your Rhombus node.",
+            "Live insight into your Kryptos node.",
         ),
         Tab::Network => (
             "Connected through Tor",
@@ -345,10 +345,10 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
         ),
         Tab::Settings => (
             "Connect your workspace",
-            "Local connections to your Rhombus node and wallet.",
+            "Local connections to your Kryptos node and wallet.",
         ),
         Tab::About => (
-            "Rhombus",
+            "Kryptos",
             "A desktop companion for a shielded monetary blockchain.",
         ),
     };
@@ -436,7 +436,7 @@ fn overview(app: &App) -> Element<'_, Message> {
     let Some(node) = &app.node else {
         return empty(
             "Your node is one connection away",
-            "Start Rhombus, then connect with its local HTTP endpoint and node token.",
+            "Start Kryptos, then connect with its local HTTP endpoint and node token.",
         );
     };
     let syncing = node.chain["syncing"].as_bool();
@@ -530,7 +530,7 @@ fn network_view(app: &App) -> Element<'_, Message> {
     let Some(node) = &app.node else {
         return empty(
             "Connect to inspect your peers",
-            "Rhombus uses embedded Arti for onion connections. Connect your node in Settings.",
+            "Kryptos uses embedded Arti for onion connections. Connect your node in Settings.",
         );
     };
     let mut peers = column![section(
@@ -539,7 +539,7 @@ fn network_view(app: &App) -> Element<'_, Message> {
     )]
     .spacing(16);
     if node.peers.is_empty() {
-        peers = peers.push(muted("No peers reported. Rhombus has no built-in public bootstrap peers; configure onion peers in the node."));
+        peers = peers.push(muted("No peers reported. Kryptos has no built-in public bootstrap peers; configure onion peers in the node."));
     }
     for peer in &node.peers {
         let address = peer["addr"]
@@ -635,7 +635,7 @@ fn mining(app: &App) -> Element<'_, Message> {
             eyebrow("MINING READINESS"),
             text(readiness).size(26).font(BOLD).color(if ready == Some(true) { ACCENT } else { AMBER }),
             muted("Online mining waits for Tor, an authenticated outbound peer, completed sync, and five seconds of stable readiness."),
-            muted("Readiness does not mean a miner is running. Configure mining in the Rhombus node."),
+            muted("Readiness does not mean a miner is running. Configure mining in the Kryptos node."),
         ].spacing(12)),
         row![
             metric("MINED IN CHAIN", field(&node.metrics, "blocks_mined_in_chain"), "Locally mined, accepted blocks"),
@@ -643,7 +643,7 @@ fn mining(app: &App) -> Element<'_, Message> {
             metric("STALE BLOCKS", field(&node.metrics, "blocks_mined_stale"), "Local stale outcomes"),
         ].spacing(14),
         panel(column![
-            section("Next block", "Parameters reported by the Rhombus node."),
+            section("Next block", "Parameters reported by the Kryptos node."),
             horizontal_rule(1),
             key_value("Next height", field(&node.mining, "next_height")),
             key_value("Block subsidy", subsidy),
@@ -694,7 +694,7 @@ fn explorer(app: &App) -> Element<'_, Message> {
     if !app.node_connected {
         content = content.push(empty(
             "Connect your node to explore",
-            "Block and transaction lookups use your local Rhombus node.",
+            "Block and transaction lookups use your local Kryptos node.",
         ));
     }
     if let Some(error) = &app.lookup_error {
@@ -755,7 +755,7 @@ fn wallet(app: &App) -> Element<'_, Message> {
         content = content.push(notice(format!("Wallet connection: {error}"), true));
     }
     let Some(wallet) = &app.wallet else {
-        return content.push(empty("Connect your shielded wallet", "Run the Rhombus wallet daemon, then connect its local endpoint and wallet token in Settings.")).into();
+        return content.push(empty("Connect your shielded wallet", "Run the Kryptos wallet daemon, then connect its local endpoint and wallet token in Settings.")).into();
     };
     let amount = |key| {
         wallet.balance[key]
@@ -798,18 +798,18 @@ fn wallet(app: &App) -> Element<'_, Message> {
     }
     if let Some(address) = wallet.info["receive_address"].as_str() {
         content = content.push(panel(column![
-            row![section("Receive $BUS", "Use the current address for a new payment request."), Space::new().width(Length::Fill),
+            row![section("Receive $K", "Use the current address for a new payment request."), Space::new().width(Length::Fill),
                 button(text("Copy address").size(13).font(BOLD)).on_press(Message::CopyAddress).padding([12, 16]).style(action_style),
             ].spacing(16).align_y(Vertical::Center),
             container(text(address).font(MONO).wrapping(Wrapping::WordOrGlyph).size(12)).padding(16).width(Length::Fill).style(inset),
-            muted("Rhombus rotates this address after receiving a payment or preparing an outgoing transfer. Refresh before sharing it again."),
+            muted("Kryptos rotates this address after receiving a payment or preparing an outgoing transfer. Refresh before sharing it again."),
         ].spacing(16)));
     } else {
         content = content.push(notice(if wallet.info["address_rotation_exhausted"].as_bool() == Some(true) {
-            "The wallet has exhausted its receiving address range. Create a fresh account through Rhombus to receive new payments."
+            "The wallet has exhausted its receiving address range. Create a fresh account through Kryptos to receive new payments."
         } else { "The wallet has not supplied a receiving address." }, false));
     }
-    content.push(muted("This desktop view displays balances and the current receiving address. Sending and wallet recovery are available through Rhombus.")).into()
+    content.push(muted("This desktop view displays balances and the current receiving address. Sending and wallet recovery are available through Kryptos.")).into()
 }
 
 fn settings(app: &App) -> Element<'_, Message> {
@@ -831,7 +831,7 @@ fn settings(app: &App) -> Element<'_, Message> {
         .style(secondary_style);
     let mut node = column![
         section(
-            "Rhombus node",
+            "Kryptos node",
             "Metrics, Tor peers, mining readiness, and the block explorer."
         ),
         muted("LOCAL HTTP ENDPOINT"),
@@ -858,7 +858,7 @@ fn settings(app: &App) -> Element<'_, Message> {
     }
     let mut wallet = column![
         section(
-            "Rhombus wallet",
+            "Kryptos wallet",
             "A separate connection for shielded balances and receiving."
         ),
         muted("LOCAL WALLET HTTP ENDPOINT"),
@@ -908,7 +908,7 @@ fn settings(app: &App) -> Element<'_, Message> {
         panel(wallet),
         panel(column![
             section("Connection preferences", "Save the endpoint addresses for your next session."),
-            muted("Tokens stay in memory for this session. Node and wallet use separate tokens. Connections accept only HTTP on 127.0.0.1; peer traffic remains inside Rhombus's embedded Tor transport."),
+            muted("Tokens stay in memory for this session. Node and wallet use separate tokens. Connections accept only HTTP on 127.0.0.1; peer traffic remains inside Kryptos's embedded Tor transport."),
             button(text("Save endpoint addresses").size(13).font(BOLD)).on_press(Message::SaveSettings).padding([12, 18]).style(secondary_style),
         ].spacing(14)),
     ].spacing(18);
@@ -921,10 +921,10 @@ fn settings(app: &App) -> Element<'_, Message> {
 fn about() -> Element<'static, Message> {
     column![
         panel(column![
-            text("◇  RHOMBUS").size(36).font(BOLD).color(ACCENT),
-            text("Randomized Hidden-Output Monetary Blockchain Using Shielded-transfers.").size(19),
-            muted("Rhombus brings node observability and a shielded wallet overview to the desktop. It connects to the existing Rhombus node and wallet daemons through authenticated local RPC."),
-            button(text("View Rhombus on GitHub").size(13).font(BOLD)).on_press(Message::OpenProject).padding([12, 18]).style(action_style),
+            text("◇  KRYPTOS").size(36).font(BOLD).color(ACCENT),
+            text("Desktop dashboard for the Kryptos blockchain.").size(19),
+            muted("Kryptos brings node observability and a shielded wallet overview to the desktop. It connects to the existing Kryptos node and wallet daemons through authenticated local RPC."),
+            button(text("View Kryptos on GitHub").size(13).font(BOLD)).on_press(Message::OpenProject).padding([12, 18]).style(action_style),
         ].spacing(20)),
         row![
             metric("PRIVATE TRANSFERS", "Halo2".into(), "Zero-knowledge proofs"),
@@ -932,12 +932,12 @@ fn about() -> Element<'static, Message> {
             metric("PEER TRANSPORT", "Tor".into(), "Embedded Arti"),
         ].spacing(14),
         panel(column![
-            section("Experimental software", "Rhombus parameters and protocol remain provisional."),
+            section("Experimental software", "Kryptos parameters and protocol remain provisional."),
             muted("ML-KEM protects coin payload encryption. It does not make the proof system or spending authorization fully post-quantum."),
             muted("Recipients and coin values are shielded; transaction fees and verification data remain public. Your wallet's viewing keys determine which incoming coins it can discover."),
             horizontal_rule(1),
-            muted("Built on the Bonsai desktop interface. Rhombus protocol and daemon development: zkmagnus/Rhombus."),
-            muted(format!("Rhombus {} · Rust / Iced", env!("CARGO_PKG_VERSION"))),
+            muted("Built on the Bonsai desktop interface. Kryptos protocol and daemon development: zkmagnus/Kryptos."),
+            muted(format!("Kryptos {} · Rust / Iced", env!("CARGO_PKG_VERSION"))),
         ].spacing(16)),
     ].spacing(18).into()
 }

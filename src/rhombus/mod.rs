@@ -1,4 +1,4 @@
-//! Desktop frontend for the Rhombus node and optional wallet daemon.
+//! Desktop frontend for the Kryptos node and optional wallet daemon.
 
 pub(crate) mod rpc;
 mod settings;
@@ -77,7 +77,7 @@ pub(crate) enum Message {
 
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Rhombus GUI event")
+        f.write_str("Kryptos GUI event")
     }
 }
 
@@ -376,12 +376,10 @@ impl App {
             Message::OpenProject => {
                 return Task::perform(
                     async {
-                        tokio::task::spawn_blocking(|| {
-                            open::that("https://github.com/zkmagnus/Rhombus")
-                        })
-                        .await
-                        .map_err(|_| "Could not open browser.".to_string())?
-                        .map_err(|_| "Could not open browser.".to_string())
+                        tokio::task::spawn_blocking(|| open::that(env!("CARGO_PKG_REPOSITORY")))
+                            .await
+                            .map_err(|_| "Could not open browser.".to_string())?
+                            .map_err(|_| "Could not open browser.".to_string())
                     },
                     Message::LinkOpened,
                 );
