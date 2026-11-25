@@ -1,4 +1,4 @@
-//! Desktop frontend for the Kryptos node and optional wallet daemon.
+//! Desktop frontend for the Kryptos node control service.
 
 pub(crate) mod rpc;
 mod settings;
@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use iced::{Subscription, Task, clipboard};
 use serde_json::Value;
 
-use rpc::{Credentials, LookupKind, NodeSnapshot, WalletSnapshot};
+use rpc::{Credentials, LookupKind, NodeSnapshot};
 use settings::Settings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -54,23 +54,16 @@ pub(crate) enum Message {
     SelectTab(Tab),
     NodeEndpointChanged(String),
     NodeTokenChanged(String),
-    WalletEndpointChanged(String),
-    WalletTokenChanged(String),
     ConnectNode,
     DisconnectNode,
-    ConnectWallet,
-    DisconnectWallet,
     Refresh,
     LookupKindChanged(LookupKind),
     QueryChanged(String),
     Search,
-    CopyAddress,
     CopyExplorerResult,
-    InspectTransaction(String),
     SaveSettings,
     OpenProject,
     NodeLoaded(u64, Result<NodeSnapshot, String>),
-    WalletLoaded(u64, Result<WalletSnapshot, String>),
     LookupLoaded(u64, u64, Result<Value, String>),
     LinkOpened(Result<(), String>),
 }
@@ -85,15 +78,10 @@ pub(crate) struct App {
     pub tab: Tab,
     pub settings: Settings,
     pub node_token: String,
-    pub wallet_token: String,
     pub node: Option<NodeSnapshot>,
-    pub wallet: Option<WalletSnapshot>,
     pub node_connected: bool,
-    pub wallet_connected: bool,
     pub node_busy: bool,
-    pub wallet_busy: bool,
     pub node_error: Option<String>,
-    pub wallet_error: Option<String>,
     pub lookup_kind: LookupKind,
     pub query: String,
     pub lookup_result: Option<Value>,
@@ -102,7 +90,6 @@ pub(crate) struct App {
     pub settings_status: Option<String>,
     pub last_updated: Option<String>,
     node_epoch: u64,
-    wallet_epoch: u64,
     lookup_epoch: u64,
 }
 
@@ -112,15 +99,10 @@ impl Default for App {
             tab: Tab::Overview,
             settings: Settings::default(),
             node_token: String::new(),
-            wallet_token: String::new(),
             node: None,
-            wallet: None,
             node_connected: false,
-            wallet_connected: false,
             node_busy: false,
-            wallet_busy: false,
             node_error: None,
-            wallet_error: None,
             lookup_kind: LookupKind::Block,
             query: String::new(),
             lookup_result: None,
@@ -129,7 +111,6 @@ impl Default for App {
             settings_status: None,
             last_updated: None,
             node_epoch: 0,
-            wallet_epoch: 0,
             lookup_epoch: 0,
         }
     }
@@ -155,13 +136,6 @@ impl App {
         }
     }
 
-    fn wallet_credentials(&self) -> Credentials {
-        Credentials {
-            endpoint: self.settings.wallet_endpoint.clone(),
-            token: self.wallet_token.clone(),
-        }
-    }
-
     fn invalidate_lookup(&mut self) {
         self.lookup_epoch = self.lookup_epoch.wrapping_add(1);
         self.lookup_busy = false;
@@ -179,14 +153,6 @@ impl App {
         self.invalidate_lookup();
     }
 
-    fn disconnect_wallet(&mut self) {
-        self.wallet_epoch = self.wallet_epoch.wrapping_add(1);
-        self.wallet_connected = false;
-        self.wallet_busy = false;
-        self.wallet = None;
-        self.wallet_error = None;
-    }
-
     fn refresh_node(&mut self) -> Task<Message> {
         if !self.node_connected || self.node_busy {
             return Task::none();
@@ -196,18 +162,6 @@ impl App {
         Task::perform(rpc::fetch_node(self.node_credentials()), move |result| {
             Message::NodeLoaded(epoch, result)
         })
-    }
-
-    fn refresh_wallet(&mut self) -> Task<Message> {
-        if !self.wallet_connected || self.wallet_busy {
-            return Task::none();
-        }
-        self.wallet_busy = true;
-        let epoch = self.wallet_epoch;
-        Task::perform(
-            rpc::fetch_wallet(self.wallet_credentials()),
-            move |result| Message::WalletLoaded(epoch, result),
-        )
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -230,16 +184,6 @@ impl App {
                 self.disconnect_node();
                 self.node_token = value;
             }
-            Message::WalletEndpointChanged(value) => {
-                self.disconnect_wallet();
-                self.wallet_token.clear();
-                self.settings.wallet_endpoint = value;
-                self.settings_status = None;
-            }
-            Message::WalletTokenChanged(value) => {
-                self.disconnect_wallet();
-                self.wallet_token = value;
-            }
             Message::ConnectNode => {
                 self.disconnect_node();
                 match rpc::Client::new(&self.node_credentials()) {
@@ -250,25 +194,11 @@ impl App {
                     Err(error) => self.node_error = Some(error),
                 }
             }
-            Message::ConnectWallet => {
-                self.disconnect_wallet();
-                match rpc::Client::new(&self.wallet_credentials()) {
-                    Ok(_) => {
-                        self.wallet_connected = true;
-                        return self.refresh_wallet();
-                    }
-                    Err(error) => self.wallet_error = Some(error),
-                }
-            }
             Message::DisconnectNode => {
                 self.disconnect_node();
                 self.node_token.clear();
             }
-            Message::DisconnectWallet => {
-                self.disconnect_wallet();
-                self.wallet_token.clear();
-            }
-            Message::Refresh => return Task::batch([self.refresh_node(), self.refresh_wallet()]),
+            Message::Refresh => return self.refresh_node(),
             Message::NodeLoaded(epoch, result) => {
                 if epoch != self.node_epoch {
                     return Task::none();
@@ -283,22 +213,6 @@ impl App {
                     Err(error) => {
                         self.disconnect_node();
                         self.node_error = Some(error);
-                    }
-                }
-            }
-            Message::WalletLoaded(epoch, result) => {
-                if epoch != self.wallet_epoch {
-                    return Task::none();
-                }
-                self.wallet_busy = false;
-                match result {
-                    Ok(snapshot) => {
-                        self.wallet = Some(snapshot);
-                        self.wallet_error = None;
-                    }
-                    Err(error) => {
-                        self.disconnect_wallet();
-                        self.wallet_error = Some(error);
                     }
                 }
             }
@@ -345,31 +259,9 @@ impl App {
                     return clipboard::write(json);
                 }
             }
-            Message::InspectTransaction(txid) => {
-                self.tab = Tab::Explorer;
-                self.lookup_kind = LookupKind::Transaction;
-                self.query = txid;
-                self.invalidate_lookup();
-                return Task::batch([
-                    self.update(Message::Search),
-                    iced::widget::operation::snap_to(
-                        "page-content",
-                        iced::widget::scrollable::RelativeOffset::START,
-                    ),
-                ]);
-            }
-            Message::CopyAddress => {
-                if let Some(address) = self
-                    .wallet
-                    .as_ref()
-                    .and_then(|w| w.info["receive_address"].as_str())
-                {
-                    return clipboard::write(address.to_owned());
-                }
-            }
             Message::SaveSettings => {
                 self.settings_status = Some(match self.settings.save() {
-                    Ok(()) => "Connection endpoints saved. Tokens stay in memory only.".into(),
+                    Ok(()) => "Control address saved. The token stays in memory only.".into(),
                     Err(error) => format!("Could not save settings: {error}"),
                 });
             }
@@ -394,7 +286,7 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        if self.node_connected || self.wallet_connected {
+        if self.node_connected {
             iced::time::every(Duration::from_secs(15)).map(|_| Message::Refresh)
         } else {
             Subscription::none()
@@ -428,9 +320,7 @@ mod tests {
             ..App::default()
         };
         let old_epoch = app.node_epoch;
-        let _ = app.update(Message::NodeEndpointChanged(
-            "http://127.0.0.1:18543/".into(),
-        ));
+        let _ = app.update(Message::NodeEndpointChanged("127.0.0.1:18543".into()));
         let _ = app.update(Message::NodeLoaded(
             old_epoch,
             Err("obsolete failure".into()),
@@ -451,27 +341,6 @@ mod tests {
             Ok(serde_json::json!({"height": 1})),
         ));
         assert!(app.lookup_result.is_none());
-    }
-
-    #[test]
-    fn disconnect_clears_private_wallet_data_and_ignores_pending_reply() {
-        let mut app = App {
-            wallet_token: "secret".into(),
-            wallet_connected: true,
-            ..App::default()
-        };
-        let epoch = app.wallet_epoch;
-        let _ = app.update(Message::DisconnectWallet);
-        let _ = app.update(Message::WalletLoaded(
-            epoch,
-            Ok(WalletSnapshot {
-                info: serde_json::json!({"receive_address": "private"}),
-                balance: serde_json::json!({"total": "10"}),
-            }),
-        ));
-        assert!(app.wallet.is_none());
-        assert!(app.wallet_token.is_empty());
-        assert!(!app.wallet_connected);
     }
 
     #[test]

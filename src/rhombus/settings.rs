@@ -4,20 +4,18 @@ use serde::{Deserialize, Serialize};
 
 use super::rpc::validate_endpoint;
 
-/// Only non-sensitive connection endpoints are persisted. Node and wallet
-/// credentials are deliberately owned by the in-memory application state.
+/// Only the non-sensitive node control address is persisted. Its token remains
+/// in the in-memory application state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub(crate) struct Settings {
     pub node_endpoint: String,
-    pub wallet_endpoint: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            node_endpoint: "http://127.0.0.1:18443/".into(),
-            wallet_endpoint: "http://127.0.0.1:18447/".into(),
+            node_endpoint: "127.0.0.1:18440".into(),
         }
     }
 }
@@ -30,8 +28,7 @@ impl Settings {
     }
 
     fn validate(&self) -> Result<(), String> {
-        validate_endpoint(&self.node_endpoint)?;
-        validate_endpoint(&self.wallet_endpoint)
+        validate_endpoint(&self.node_endpoint)
     }
 
     pub fn load() -> (Self, Option<String>) {
@@ -79,12 +76,11 @@ mod tests {
     fn persisted_settings_only_contain_loopback_endpoints() {
         let serialized = toml::to_string(&Settings::default()).unwrap();
         let table: toml::Table = toml::from_str(&serialized).unwrap();
-        assert_eq!(table.len(), 2);
+        assert_eq!(table.len(), 1);
         assert!(table.contains_key("node_endpoint"));
-        assert!(table.contains_key("wallet_endpoint"));
         assert!(Settings::default().validate().is_ok());
         let external = Settings {
-            node_endpoint: "http://example.com/".into(),
+            node_endpoint: "192.0.2.1:18440".into(),
             ..Settings::default()
         };
         assert!(external.validate().is_err());

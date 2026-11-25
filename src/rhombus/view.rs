@@ -19,13 +19,11 @@ use iced::widget::scrollable;
 use iced::widget::text;
 use iced::widget::text::Wrapping;
 use iced::widget::text_input;
-use serde_json::Value;
 
 use super::App;
 use super::Message;
 use super::Tab;
 use super::rpc::LookupKind;
-use super::rpc::format_bus;
 
 const BG: Color = Color::from_rgb8(16, 20, 17);
 const PANEL: Color = Color::from_rgb8(24, 31, 26);
@@ -140,37 +138,6 @@ fn muted<'a>(label: impl Into<String>) -> iced::widget::Text<'a> {
 
 fn section<'a>(title: &'a str, detail: &'a str) -> Column<'a, Message> {
     column![text(title).size(20).font(BOLD), muted(detail)].spacing(5)
-}
-
-fn field(value: &Value, key: &str) -> String {
-    scalar(&value[key])
-}
-
-fn scalar(value: &Value) -> String {
-    match value {
-        Value::Null => "—".into(),
-        Value::String(value) => value.clone(),
-        Value::Bool(value) => if *value { "Yes" } else { "No" }.into(),
-        other => other.to_string(),
-    }
-}
-
-fn uptime(value: &Value) -> String {
-    match value.as_u64() {
-        Some(seconds) if seconds >= 86_400 => {
-            format!(
-                "{}d {}h {}m",
-                seconds / 86_400,
-                seconds % 86_400 / 3_600,
-                seconds % 3_600 / 60
-            )
-        }
-        Some(seconds) if seconds >= 3_600 => {
-            format!("{}h {}m", seconds / 3_600, seconds % 3_600 / 60)
-        }
-        Some(seconds) => format!("{}m {}s", seconds / 60, seconds % 60),
-        None => "—".into(),
-    }
 }
 
 fn metric<'a>(label: &'a str, value: String, detail: impl Into<String>) -> Element<'a, Message> {
@@ -311,16 +278,12 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
     .width(230)
     .height(Length::Fill);
 
-    let network = app.node.as_ref().map(|node| field(&node.chain, "network"));
     let connection = if app.node_busy && app.node.is_none() {
-        "◌  CONNECTING".into()
+        "◌  CONNECTING"
     } else if app.node_connected && app.node.is_some() {
-        format!(
-            "●  {}",
-            network.as_deref().unwrap_or("Connected").to_uppercase()
-        )
+        "●  NODE CONNECTED"
     } else {
-        "○  NOT CONNECTED".into()
+        "○  NOT CONNECTED"
     };
     let (title, subtitle) = match app.tab {
         Tab::Overview => (
@@ -329,23 +292,23 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
         ),
         Tab::Network => (
             "Connected through Tor",
-            "Onion peers and authenticated outbound connections.",
+            "Peer count reported by the node control service.",
         ),
         Tab::Mining => (
             "Mining & readiness",
-            "Network readiness and RandomX proof of work.",
+            "Local mined-block counts reported by the node.",
         ),
         Tab::Explorer => (
             "Explore the shielded chain",
-            "Inspect public blocks and transaction data.",
+            "Look up block hashes and transaction status.",
         ),
         Tab::Wallet => (
             "Your shielded wallet",
-            "Balances and receiving address from your local wallet daemon.",
+            "Wallet commands remain available in the Kryptos CLI.",
         ),
         Tab::Settings => (
             "Connect your workspace",
-            "Local connections to your Kryptos node and wallet.",
+            "Connect to the local Kryptos control socket.",
         ),
         Tab::About => (
             "Kryptos",
@@ -353,17 +316,14 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
         ),
     };
     let refresh = button(
-        text(if app.node_busy || app.wallet_busy {
+        text(if app.node_busy {
             "Refreshing…"
         } else {
             "Refresh"
         })
         .size(12),
     )
-    .on_press_maybe(
-        (!(app.node_busy || app.wallet_busy) && (app.node_connected || app.wallet_connected))
-            .then_some(Message::Refresh),
-    )
+    .on_press_maybe((!app.node_busy && app.node_connected).then_some(Message::Refresh))
     .padding([10, 14])
     .style(secondary_style);
     let header = row![
@@ -436,94 +396,57 @@ fn overview(app: &App) -> Element<'_, Message> {
     let Some(node) = &app.node else {
         return empty(
             "Your node is one connection away",
-            "Start Kryptos, then connect with its local HTTP endpoint and node token.",
+            "Start Kryptos, then connect with its local control address and node token.",
         );
     };
-    let syncing = node.chain["syncing"].as_bool();
-    let sync_label = match syncing {
-        Some(true) => "Synchronizing",
-        Some(false) => "Synchronized",
-        None => "Unknown",
-    };
-    let readiness = match node.metrics["mining_ready"].as_bool() {
-        Some(true) => "Ready for mining".into(),
-        Some(false) => format!("Waiting: {}", field(&node.metrics, "mining_waits")),
-        None => "Readiness unavailable".into(),
+    let sync_label = if node.syncing {
+        "Synchronizing"
+    } else {
+        "Synchronized"
     };
     let cards = row![
-        metric("CHAIN HEIGHT", field(&node.chain, "height"), sync_label),
+        metric("CHAIN HEIGHT", node.height.to_string(), sync_label),
         metric(
             "CONNECTED PEERS",
-            field(&node.network, "connections"),
+            node.peers.to_string(),
             "Over the Tor network"
         ),
+        metric("MEMPOOL", node.mempool.to_string(), "Pending transactions"),
         metric(
-            "MEMPOOL",
-            field(&node.mempool_info, "size"),
-            "Pending transactions"
-        ),
-        metric(
-            "UPTIME",
-            uptime(&node.metrics["uptime_seconds"]),
-            "Current node session"
+            "MINED IN CHAIN",
+            node.mined_in_chain.to_string(),
+            "Blocks mined by this node"
         ),
     ]
     .spacing(14);
     let chain = panel(
         column![
-            section("Chain state", "The latest snapshot reported by your node."),
-            horizontal_rule(1),
-            key_value("Network", field(&node.chain, "network")),
-            key_value("Synchronization", sync_label.into()),
-            key_value(
-                "Target block interval",
-                format!("{} seconds", field(&node.chain, "block_interval"))
+            section(
+                "Chain state",
+                "The latest status from the node control service."
             ),
-            key_value("Active branch", field(&node.chain, "branch")),
-            key_value("Mining readiness", readiness),
+            horizontal_rule(1),
+            key_value("Height", node.height.to_string()),
+            key_value("Synchronization", sync_label.to_owned()),
+            key_value("Connected peers", node.peers.to_string()),
+            key_value("Transactions in mempool", node.mempool.to_string()),
             muted("BEST BLOCK HASH"),
-            text(field(&node.chain, "best_block_hash"))
+            text(node.hash.clone())
                 .font(MONO)
                 .wrapping(Wrapping::WordOrGlyph)
                 .size(12),
         ]
         .spacing(16),
     );
-    let mut mempool = column![
-        section("Mempool", "Transactions awaiting inclusion in a block."),
-        muted(format!(
-            "{} / {} transactions",
-            field(&node.mempool_info, "size"),
-            field(&node.mempool_info, "capacity")
-        )),
-    ]
-    .spacing(12);
-    if node.mempool.is_empty() {
-        mempool = mempool.push(muted("The mempool is empty."));
-    } else {
-        for txid in node.mempool.iter().take(12) {
-            mempool = mempool.push(
-                button(
-                    text(txid)
-                        .font(MONO)
-                        .wrapping(Wrapping::WordOrGlyph)
-                        .size(12),
-                )
-                .on_press(Message::InspectTransaction(txid.clone()))
-                .padding([10, 12])
-                .width(Length::Fill)
-                .style(secondary_style),
-            );
-        }
-        if node.mempool.len() > 12 {
-            mempool = mempool.push(muted(format!(
-                "Showing 12 of {} pending transactions.",
-                node.mempool.len()
-            )));
-        }
-        mempool = mempool.push(muted("Select a transaction to inspect it in Explorer."));
-    }
-    column![cards, chain, panel(mempool)].spacing(18).into()
+    let mempool = panel(
+        column![
+            section("Mempool", "Transactions awaiting inclusion in a block."),
+            muted(format!("{} transactions currently pooled.", node.mempool)),
+            muted("The control service reports the count, but does not expose a transaction list."),
+        ]
+        .spacing(12),
+    );
+    column![cards, chain, mempool].spacing(18).into()
 }
 
 fn network_view(app: &App) -> Element<'_, Message> {
@@ -533,81 +456,36 @@ fn network_view(app: &App) -> Element<'_, Message> {
             "Kryptos uses embedded Arti for onion connections. Connect your node in Settings.",
         );
     };
-    let mut peers = column![section(
-        "Peer connections",
-        "Inbound addresses are advertised claims; outbound onion destinations are authenticated."
-    )]
-    .spacing(16);
-    if node.peers.is_empty() {
-        peers = peers.push(muted("No peers reported. Kryptos has no built-in public bootstrap peers; configure onion peers in the node."));
-    }
-    for peer in &node.peers {
-        let address = peer["addr"]
-            .as_str()
-            .or_else(|| peer["target"].as_str())
-            .unwrap_or("Address not advertised");
-        let ready = peer["ready"].as_bool() == Some(true);
-        let rtt = peer["rtt_micros"]
-            .as_u64()
-            .map(|micros| format!("{} ms RTT", micros / 1_000))
-            .unwrap_or_else(|| "RTT unavailable".into());
-        peers = peers.push(
-            container(
-                column![
-                    row![
-                        text(format!(
-                            "{}  ·  Peer {}",
-                            field(peer, "direction").to_uppercase(),
-                            field(peer, "id")
-                        ))
-                        .size(11)
-                        .font(BOLD)
-                        .color(ACCENT),
-                        Space::new().width(Length::Fill),
-                        text(if ready { "CONNECTED" } else { "HANDSHAKING" })
-                            .size(11)
-                            .color(if ready { ACCENT } else { AMBER }),
-                    ]
-                    .spacing(12),
-                    text(address)
-                        .font(MONO)
-                        .wrapping(Wrapping::WordOrGlyph)
-                        .size(12),
-                    muted(format!(
-                        "Height {}   ·   {}   ·   Received {} bytes   ·   Sent {} bytes",
-                        field(peer, "best_height"),
-                        rtt,
-                        field(peer, "received_bytes"),
-                        field(peer, "sent_bytes")
-                    )),
-                ]
-                .spacing(12),
-            )
-            .padding(16)
-            .width(Length::Fill)
-            .style(inset),
-        );
-    }
+    let peer_summary = if node.peers == 0 {
+        "No authenticated peers are connected. Configure onion peers on the node.".to_owned()
+    } else {
+        format!("{} authenticated peers are connected over Tor.", node.peers)
+    };
     column![
         row![
             metric(
-                "INBOUND",
-                field(&node.network, "connections_in"),
-                "Accepted onion streams"
+                "AUTHENTICATED PEERS",
+                node.peers.to_string(),
+                "Current connected peer count"
             ),
+            metric("CHAIN HEIGHT", node.height.to_string(), "Latest node tip"),
             metric(
-                "OUTBOUND",
-                field(&node.network, "connections_out"),
-                "Authenticated destinations"
-            ),
-            metric(
-                "HANDSHAKING",
-                field(&node.network, "handshaking"),
-                format!("Protocol {}", field(&node.network, "protocol_version"))
+                "SYNC",
+                if node.syncing { "Active" } else { "Idle" }.into(),
+                "Synchronization state"
             ),
         ]
         .spacing(14),
-        panel(peers),
+        panel(
+            column![
+                section(
+                    "Peer connections",
+                    "Detailed peer addresses and RTT are not part of the current control protocol."
+                ),
+                muted(peer_summary),
+            ]
+            .spacing(12)
+        ),
     ]
     .spacing(18)
     .into()
@@ -616,43 +494,28 @@ fn network_view(app: &App) -> Element<'_, Message> {
 fn mining(app: &App) -> Element<'_, Message> {
     let Some(node) = &app.node else {
         return empty(
-            "Connect to view mining readiness",
-            "Your node reports readiness, synchronization, and mining outcomes through its local RPC.",
+            "Connect to view node status",
+            "The node control service reports its height, peer count, and local mined-block count.",
         );
     };
-    let ready = node.metrics["mining_ready"].as_bool();
-    let readiness = match ready {
-        Some(true) => "Ready".into(),
-        Some(false) => field(&node.metrics, "mining_waits"),
-        None => "Unavailable".into(),
-    };
-    let subsidy = node.mining["subsidy"]
-        .as_str()
-        .map(|raw| format!("{} BUS", format_bus(raw)))
-        .unwrap_or_else(|| "—".into());
     column![
         panel(column![
-            eyebrow("MINING READINESS"),
-            text(readiness).size(26).font(BOLD).color(if ready == Some(true) { ACCENT } else { AMBER }),
-            muted("Online mining waits for Tor, an authenticated outbound peer, completed sync, and five seconds of stable readiness."),
-            muted("Readiness does not mean a miner is running. Configure mining in the Kryptos node."),
+            eyebrow("NODE MINING"),
+            text("Mining readiness is not exposed by control").size(22).font(BOLD).color(AMBER),
+            muted("Online mining waits for Tor, an authenticated outbound peer, completed sync, and a stable ready period."),
+            muted("Configure mining with the Kryptos CLI. This view shows the block counts included in node status."),
         ].spacing(12)),
         row![
-            metric("MINED IN CHAIN", field(&node.metrics, "blocks_mined_in_chain"), "Locally mined, accepted blocks"),
-            metric("MINED TOTAL", field(&node.metrics, "blocks_mined"), "All local mining outcomes"),
-            metric("STALE BLOCKS", field(&node.metrics, "blocks_mined_stale"), "Local stale outcomes"),
+            metric("MINED IN CHAIN", node.mined_in_chain.to_string(), "Locally mined, accepted blocks"),
+            metric("MINED TOTAL", node.mined.to_string(), "Blocks mined since startup"),
+            metric("CHAIN HEIGHT", node.height.to_string(), if node.syncing { "Synchronizing" } else { "Synchronized" }),
         ].spacing(14),
         panel(column![
-            section("Next block", "Parameters reported by the Kryptos node."),
+            section("Current node status", "The line control protocol exposes a compact status snapshot."),
             horizontal_rule(1),
-            key_value("Next height", field(&node.mining, "next_height")),
-            key_value("Block subsidy", subsidy),
-            key_value("Target", field(&node.mining, "next_target")),
-            key_value("Network work per second", field(&node.mining, "work_per_second")),
-            key_value("Target interval", format!("{} seconds", field(&node.mining, "block_interval"))),
-            key_value("Rejected local blocks", field(&node.metrics, "blocks_mined_rejected")),
-            key_value("Blocked local attempts", field(&node.metrics, "blocks_mined_blocked")),
-            key_value("Pending compact blocks", field(&node.metrics, "pending_compact_blocks")),
+            key_value("Connected peers", node.peers.to_string()),
+            key_value("Mempool transactions", node.mempool.to_string()),
+            key_value("Synchronization", if node.syncing { "Active" } else { "Idle" }.into()),
         ].spacing(16)),
     ].spacing(18).into()
 }
@@ -673,7 +536,7 @@ fn explorer(app: &App) -> Element<'_, Message> {
     let can_search = app.node_connected && !app.lookup_busy && !app.query.trim().is_empty();
     let input = text_input(
         if block {
-            "Block height or 64-character block hash"
+            "Block height"
         } else {
             "64-character transaction hash"
         },
@@ -688,7 +551,7 @@ fn explorer(app: &App) -> Element<'_, Message> {
             kinds,
             row![input, button(text(if app.lookup_busy { "Searching…" } else { "Search" }).size(13).font(BOLD))
                 .on_press_maybe(can_search.then_some(Message::Search)).padding([14, 20]).style(action_style)].spacing(12),
-            muted("Recipients and transferred values are shielded. Public data includes commitments, nullifiers, and public fees."),
+            muted("Block lookup accepts a height. Transaction lookup shows pool or confirmation status; the control service does not return transaction contents."),
         ].spacing(16)),
     ].spacing(18);
     if !app.node_connected {
@@ -743,73 +606,28 @@ fn explorer(app: &App) -> Element<'_, Message> {
     } else if app.node_connected && app.lookup_error.is_none() {
         content = content.push(panel(column![
             text("A private chain. Public verification.").size(22).font(BOLD),
-            muted("Search a block by height or hash, or inspect a transaction by its hash. Address activity is visible only to a wallet with the corresponding viewing key."),
+            muted("Search a block by height or check a transaction ID. Shielded recipient activity is visible only to the wallet with its viewing key."),
         ].spacing(12)));
     }
     content.into()
 }
 
-fn wallet(app: &App) -> Element<'_, Message> {
-    let mut content = column![].spacing(18);
-    if let Some(error) = &app.wallet_error {
-        content = content.push(notice(format!("Wallet connection: {error}"), true));
-    }
-    let Some(wallet) = &app.wallet else {
-        return content.push(empty("Connect your shielded wallet", "Run the Kryptos wallet daemon, then connect its local endpoint and wallet token in Settings.")).into();
-    };
-    let amount = |key| {
-        wallet.balance[key]
-            .as_str()
-            .map(|raw| format!("{} BUS", format_bus(raw)))
-            .unwrap_or_else(|| "—".into())
-    };
-    content = content.push(
-        row![
-            metric("SPENDABLE", amount("spendable"), "Available balance"),
-            metric("PENDING", amount("pending"), "Awaiting confirmations"),
-            metric("LOCKED", amount("locked"), "Reserved for operations"),
-        ]
-        .spacing(14),
-    );
-    content = content.push(panel(
-        column![
-            section(
-                "Wallet state",
-                "Wallet data is separate from the node's public chain data."
-            ),
-            horizontal_rule(1),
-            key_value("Network", field(&wallet.info, "network")),
-            key_value("Total balance", amount("total")),
-            key_value("Scanned height", field(&wallet.info, "scanned_height")),
-            key_value("Node height", field(&wallet.info, "node_height")),
-            key_value("Synchronized", field(&wallet.info, "synced")),
-            key_value("Unspent coins", field(&wallet.info, "unspent")),
-            key_value(
-                "Pending operations",
-                field(&wallet.info, "pending_operations")
-            ),
-        ]
-        .spacing(16),
-    ));
-    if let Some(error) = wallet.info["last_error"].as_str()
-        && !error.is_empty()
-    {
-        content = content.push(notice(format!("Wallet scan: {error}"), true));
-    }
-    if let Some(address) = wallet.info["receive_address"].as_str() {
-        content = content.push(panel(column![
-            row![section("Receive $K", "Use the current address for a new payment request."), Space::new().width(Length::Fill),
-                button(text("Copy address").size(13).font(BOLD)).on_press(Message::CopyAddress).padding([12, 16]).style(action_style),
-            ].spacing(16).align_y(Vertical::Center),
-            container(text(address).font(MONO).wrapping(Wrapping::WordOrGlyph).size(12)).padding(16).width(Length::Fill).style(inset),
-            muted("Kryptos rotates this address after receiving a payment or preparing an outgoing transfer. Refresh before sharing it again."),
-        ].spacing(16)));
-    } else {
-        content = content.push(notice(if wallet.info["address_rotation_exhausted"].as_bool() == Some(true) {
-            "The wallet has exhausted its receiving address range. Create a fresh account through Kryptos to receive new payments."
-        } else { "The wallet has not supplied a receiving address." }, false));
-    }
-    content.push(muted("This desktop view displays balances and the current receiving address. Sending and wallet recovery are available through Kryptos.")).into()
+fn wallet(_app: &App) -> Element<'_, Message> {
+    panel(column![
+        section("Wallet tools", "Wallet databases are opened directly by the Kryptos CLI."),
+        horizontal_rule(1),
+        muted("The removed wallet daemon is not needed for wallet commands."),
+        container(
+            text("kryptos balance --network main --wallet wallet.redb --rpc 127.0.0.1:18440 --rpc-token-file /path/to/rpc.token\nkryptos address --network main --wallet wallet.redb")
+                .font(MONO)
+                .wrapping(Wrapping::WordOrGlyph)
+                .size(12),
+        )
+        .padding(16)
+        .width(Length::Fill)
+        .style(inset),
+        muted("Use the same network and node token when connecting through the control socket. Keep the wallet file private and do not open it in two processes at once."),
+    ].spacing(16)).into()
 }
 
 fn settings(app: &App) -> Element<'_, Message> {
@@ -832,10 +650,10 @@ fn settings(app: &App) -> Element<'_, Message> {
     let mut node = column![
         section(
             "Kryptos node",
-            "Metrics, Tor peers, mining readiness, and the block explorer."
+            "Read status, block hashes by height, and transaction status over the control protocol."
         ),
-        muted("LOCAL HTTP ENDPOINT"),
-        text_input("http://127.0.0.1:18443", &app.settings.node_endpoint)
+        muted("LOCAL CONTROL ADDRESS"),
+        text_input("127.0.0.1:18440", &app.settings.node_endpoint)
             .on_input(Message::NodeEndpointChanged)
             .size(14)
             .padding(12),
@@ -856,60 +674,12 @@ fn settings(app: &App) -> Element<'_, Message> {
     } else if app.node_connected && app.node.is_some() {
         node = node.push(text("● Node connected").color(ACCENT).size(13));
     }
-    let mut wallet = column![
-        section(
-            "Kryptos wallet",
-            "A separate connection for shielded balances and receiving."
-        ),
-        muted("LOCAL WALLET HTTP ENDPOINT"),
-        text_input("http://127.0.0.1:18447", &app.settings.wallet_endpoint)
-            .on_input(Message::WalletEndpointChanged)
-            .size(14)
-            .padding(12),
-        muted("WALLET TOKEN · wallet-rpc.token"),
-        text_input("Paste your wallet token", &app.wallet_token)
-            .secure(true)
-            .on_input(Message::WalletTokenChanged)
-            .size(14)
-            .padding(12),
-        row![
-            button(
-                text(if app.wallet_busy {
-                    "Connecting…"
-                } else {
-                    "Connect wallet"
-                })
-                .size(13)
-                .font(BOLD)
-            )
-            .on_press_maybe((!app.wallet_busy).then_some(Message::ConnectWallet))
-            .padding([12, 18])
-            .style(action_style),
-            button(text("Disconnect").size(13))
-                .on_press_maybe(
-                    (app.wallet_connected || app.wallet_busy).then_some(Message::DisconnectWallet)
-                )
-                .padding([12, 18])
-                .style(secondary_style),
-        ]
-        .spacing(10),
-    ]
-    .spacing(12);
-    if let Some(error) = &app.wallet_error {
-        wallet = wallet.push(notice(error, true));
-    }
-    if app.wallet_busy && app.wallet.is_none() {
-        wallet = wallet.push(muted("Connecting to wallet…"));
-    } else if app.wallet_connected && app.wallet.is_some() {
-        wallet = wallet.push(text("● Wallet connected").color(ACCENT).size(13));
-    }
     let mut content = column![
         panel(node),
-        panel(wallet),
         panel(column![
-            section("Connection preferences", "Save the endpoint addresses for your next session."),
-            muted("Tokens stay in memory for this session. Node and wallet use separate tokens. Connections accept only HTTP on 127.0.0.1; peer traffic remains inside Kryptos's embedded Tor transport."),
-            button(text("Save endpoint addresses").size(13).font(BOLD)).on_press(Message::SaveSettings).padding([12, 18]).style(secondary_style),
+            section("Connection preferences", "Save the local control address for your next session."),
+            muted("The node token stays in memory for this session. The GUI accepts only an IPv4 loopback address; peer traffic remains inside Kryptos's embedded Tor transport."),
+            button(text("Save control address").size(13).font(BOLD)).on_press(Message::SaveSettings).padding([12, 18]).style(secondary_style),
         ].spacing(14)),
     ].spacing(18);
     if let Some(status) = &app.settings_status {
@@ -923,7 +693,7 @@ fn about() -> Element<'static, Message> {
         panel(column![
             text("◇  KRYPTOS").size(36).font(BOLD).color(ACCENT),
             text("Desktop dashboard for the Kryptos blockchain.").size(19),
-            muted("Kryptos brings node observability and a shielded wallet overview to the desktop. It connects to the existing Kryptos node and wallet daemons through authenticated local RPC."),
+            muted("Kryptos brings a basic node status and chain lookup view to the desktop. It connects through the node's authenticated local control service."),
             button(text("View Kryptos on GitHub").size(13).font(BOLD)).on_press(Message::OpenProject).padding([12, 18]).style(action_style),
         ].spacing(20)),
         row![

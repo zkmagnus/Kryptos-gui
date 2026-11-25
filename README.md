@@ -1,58 +1,57 @@
 # Kryptos
 
-[Kryptos](https://github.com/zkmagnus/Kryptos-gui) is a desktop dashboard for [Kryptos](https://github.com/zkmagnus/Kryptos), the
-shielded `$K` blockchain. Kryptos uses Rust and [Iced](https://iced.rs) to show
-node activity, Tor peers, mining readiness, blocks, transactions, and wallet
-balances through Kryptos's authenticated local JSON-RPC interfaces.
+[Kryptos](https://github.com/zkmagnus/Kryptos-gui) is a desktop status dashboard for [Kryptos](https://github.com/zkmagnus/Kryptos), the shielded `$K` blockchain. It connects to the node's authenticated, line-oriented control service over IPv4 loopback. The GUI does not use HTTP or JSON-RPC.
 
-This desktop client connects to the Kryptos node and wallet through their local JSON-RPC interfaces.
-Kryptos is experimental. Its transfers use Halo2 proofs and ML-KEM coin payload
-encryption; ML-KEM does not make the proof system or spending authorization fully
-post-quantum.
-
-See [validation notes](docs/validation.md) for the checks performed and their limits.
+Kryptos is experimental. Its transfers use Halo2 proofs and ML-KEM coin-payload encryption; ML-KEM does not make the proof system or spending authorization fully post-quantum.
 
 ## What the GUI supports
 
 | Tab | Data and actions |
 | --- | --- |
-| Overview | Chain height, synchronization, tip hash, peers, mempool, and uptime |
-| Network | Tor peer endpoints, connection direction, handshake readiness, height, and latency |
-| Mining | Readiness and wait reasons, local block outcomes, work rate, and mining parameters |
-| Explorer | Look up a block by height or hash, or a transaction by its hash |
-| Wallet | Spendable, locked, pending, and total balance; scan status; current receive address and copy action |
-| Settings | Configure and connect local node and wallet RPC endpoints |
+| Overview | Chain height, sync state, tip hash, peer count, mempool count, and blocks mined by this node |
+| Network | Authenticated peer count and sync status |
+| Mining | Local block counts and current chain status; detailed readiness is not exposed by control |
+| Explorer | Block hash by height and transaction pool/confirmation status |
+| Wallet | CLI guidance for balance, address, send, and recovery commands |
+| Settings | Connect to the local node control socket |
 | About | Project and protocol information |
 
-Node and wallet queries are read-only. The GUI does not start or stop node
-processes, change peers, enable mining, create wallets, or send transactions.
-These operations remain with the Kryptos binaries. The former embedded
-Bitcoin/Floresta backend and Utreexo views are replaced by Kryptos RPC views.
-
-Public block data cannot reveal shielded recipients or balances. Wallet data
-comes from the separate wallet daemon that holds the corresponding wallet keys.
-K amounts use eight decimal places, with integer conversion from the RPC's
-smallest-unit strings.
+The current control protocol intentionally exposes a small read-only data set to
+this dashboard. It does not provide peer details, a mempool transaction list,
+block bodies, or wallet balances. Wallet commands open the wallet file directly
+through the Kryptos CLI; do not open the same wallet file in two processes.
 
 ## Build and run
 
-Install a current stable [Rust toolchain](https://rustup.rs). Build Kryptos from this repository:
+Install a current stable [Rust toolchain](https://rustup.rs). In a standalone
+GUI checkout, build the desktop client from this directory:
 
 ```sh
 cargo run --release --locked
 ```
 
-This repository builds a standalone desktop client named `kryptos` at
-`target/release/kryptos`. Building it does not require a sibling node checkout,
-and it does not compile the Kryptos node or its proof system. A graphical
-desktop session is required to open the application.
+This builds the standalone desktop client named `kryptos`. It does not compile
+the node or proof system. A graphical desktop session is required to open it.
+
+Keep the GUI as a sibling of the node and dependency repositories:
+
+```text
+workspace/
+├── Kryptos/
+├── dependency/
+└── gui/
+```
+
+Run GUI Cargo and Git commands from `gui/`. It has its own manifest, lockfile,
+and Git history; the node's offline Cargo configuration and dependency snapshot
+do not apply to this standalone checkout. Commit GUI changes here separately
+from node or dependency changes.
 
 ## Connect a Kryptos node
 
-Build the Kryptos node separately using its
+Build the node separately using its
 [build instructions](https://github.com/zkmagnus/Kryptos/blob/master/BUILD.md).
-Run the following example **from the upstream node repository**, not this
-desktop client repository:
+Run the node command from the upstream node repository:
 
 ```sh
 cargo build --release --locked -p runtime --bins
@@ -60,70 +59,47 @@ mkdir -p local-test
 chmod 700 local-test
 
 target/release/kryptos run --network test --datadir local-test/node-a \
-  --p2p-port 19000 --rpc 127.0.0.1:18444 --rpc-http 127.0.0.1:18443
+  --p2p-port 19000 --rpc 127.0.0.1:18440
 ```
 
-This starts a local test-network node without enabling mining. Kryptos has no
-built-in public bootstrap peers. To join an existing chain, configure its valid
-v3 onion peers with `--addnode`, `--connect`, or `--seed`, following the
-[operations guide](https://github.com/zkmagnus/Kryptos/blob/master/docs/operations.md).
-Tor service readiness alone does not establish chain synchronization.
+Kryptos has no built-in public bootstrap peers. To join an existing chain,
+configure valid v3 onion peers with `--addnode`, `--connect`, or `--seed`,
+following the [operations guide](https://github.com/zkmagnus/Kryptos/blob/master/docs/operations.md).
 
-In the desktop client's **Settings** tab:
+In the GUI **Settings** tab, use the local control address `127.0.0.1:18440`
+and enter the contents of `local-test/node-a/rpc.token`. The default node
+control port is 18440. The token is required for each authenticated control
+session and is kept in memory only.
 
-1. Set the node endpoint to `http://127.0.0.1:18443/`.
-2. Enter the contents of the node's `local-test/node-a/rpc.token` file in the
-   node token field.
-3. Connect to load the node dashboard.
+## Wallet commands
 
-Use the HTTP JSON-RPC port (`18443` in this example), not the line-protocol RPC
-port (`18444`). Node and wallet endpoints must use `http://127.0.0.1:<port>/`.
-The client disables HTTP proxies and redirects. Kryptos itself handles peer and
-remote-node traffic through embedded Arti; the desktop client connects only to local RPC.
-
-## Connect a wallet
-
-The wallet view is optional and uses its own connection and token. Create or
-restore a wallet with the Kryptos CLI first. For example, from the upstream node repository:
+Create or restore a wallet with the Kryptos CLI. Keep the printed recovery
+phrase private. For example:
 
 ```sh
 target/release/kryptos create --network test --wallet local-test/wallet.redb
+target/release/kryptos balance --network test --wallet local-test/wallet.redb \
+  --rpc 127.0.0.1:18440 --rpc-token-file local-test/node-a/rpc.token
+target/release/kryptos address --network test --wallet local-test/wallet.redb
 ```
 
-Keep the printed recovery phrase private. After the CLI releases the database,
-start the wallet daemon. Replace the onion placeholder with the node's hostname
-reported after service readiness:
-
-```sh
-KRYPTOS_ONION_A='<node-a-v3-hostname>.onion'
-target/release/wallet --network test --wallet local-test/wallet.redb \
-  --node "$KRYPTOS_ONION_A:18444" --datadir local-test/wallet-daemon \
-  --node-token-file local-test/node-a/rpc.token --listen 127.0.0.1:18447
-```
-
-The wallet daemon uses independent Tor state to reach the node. Its local HTTP
-endpoint defaults in the desktop client to `http://127.0.0.1:18447/`. Enter the daemon's
-`wallet-rpc.token`, stored beside the wallet database, in the desktop client's **wallet token**
-field, then connect. This token differs from the node token. Keep the wallet and
-node on the same network, and do not open the wallet database concurrently from
-another process.
-
-Kryptos displays the wallet's current receive address without allocating a new
-one. Address rotation, scanning, and recovery rules remain under the Kryptos
-wallet's control; see its
+Address rotation, scanning, sending, and recovery remain under the CLI and
+wallet library; see the upstream
 [address rotation guide](https://github.com/zkmagnus/Kryptos/blob/master/docs/address-rotation.md).
 
 ## Settings and credentials
 
-**Save settings** persists endpoint addresses in
+The GUI saves the control address in
 `<platform configuration directory>/rhombus/settings.toml`, using
 `dirs::config_dir()`. On Linux this is normally
-`~/.config/rhombus/settings.toml`.
+`~/.config/rhombus/settings.toml`. Existing URL-based settings from the former
+HTTP client fall back to the new default address; enter and save the control
+address again if needed.
 
-RPC tokens are masked in the GUI, kept in memory, and excluded from the settings
-file. Enter them again after reopening Kryptos. Connecting requires an explicit
-user action; saved endpoints do not trigger automatic connections. Credentials
-are separate for the node and the wallet.
+The node token is masked in the GUI, kept in memory, and excluded from the
+settings file. Enter it again after reopening the application. Connecting
+requires an explicit user action; a saved address does not trigger automatic
+connections. Only IPv4 loopback addresses are accepted.
 
 ## Development
 
@@ -145,16 +121,10 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-RPC tests use local fixtures and mock responses. They do not validate live Tor
-connectivity, consensus, wallet recovery, or proof generation in Kryptos.
-
 ## Credits and license
 
-This desktop client is adapted from Bonsai, [Luis Schwab's desktop Bitcoin wallet and embedded node
-showcase](https://github.com/luisschwab/bonsai). This GUI adaptation retains the
-Bonsai project's [MIT license](LICENSE) and attribution.
+This desktop client is adapted from Bonsai, [Luis Schwab's desktop Bitcoin wallet and embedded node showcase](https://github.com/luisschwab/bonsai). This GUI adaptation retains the Bonsai project's [MIT license](LICENSE) and attribution.
 
-The upstream Kryptos protocol and daemons use GPL-3.0-or-later. This client
-communicates with its external binaries over JSON-RPC. See the
+The upstream Kryptos protocol and node use GPL-3.0-or-later. See the
 [Kryptos repository](https://github.com/zkmagnus/Kryptos) for protocol source,
 licenses, and operational documentation.
