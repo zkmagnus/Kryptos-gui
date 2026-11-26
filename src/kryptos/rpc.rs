@@ -98,8 +98,11 @@ impl Client {
             if reply.starts_with("err ") {
                 return Err("The node rejected the control command".into());
             }
+            if reply == "ok" {
+                return Ok(String::new());
+            }
             reply
-                .strip_prefix("ok")
+                .strip_prefix("ok ")
                 .map(|value| value.trim_start().to_owned())
                 .ok_or_else(|| "The node returned an invalid control reply".into())
         })
@@ -250,5 +253,167 @@ pub(crate) async fn lookup(
             }
             Ok(result)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use protocol::block::BlockHash;
+    use runtime::node::{Event, Request, Response, TxStatus};
+    use tokio::net::TcpListener;
+    use tokio::sync::mpsc;
+
+    const FIXTURE_TIMEOUT: Duration = Duration::from_secs(15);
+
+    #[tokio::test]
+    async fn external_client_interoperates_with_the_core_control_service() {
+        tokio::time::timeout(FIXTURE_TIMEOUT, async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let credentials = Credentials {
+                endpoint: listener.local_addr().unwrap().to_string(),
+                token: "fixture-token".into(),
+            };
+            let token = runtime::rpc::Token::new(&credentials.token).unwrap();
+            let hash = BlockHash::from_bytes(*b"0123456789abcdefghijklmnopqrstuv");
+            let expected_hash = crypto::encoding::to_hex(hash.as_bytes());
+            let (events, mut receiver) = mpsc::channel(1);
+
+            // Exercise the real core authentication, command parser, and reply
+            // formatter without starting storage, proof generation, or Tor.
+            let server = tokio::spawn(async move {
+                for _ in 0..7 {
+                    let (stream, _) = listener.accept().await.unwrap();
+                    runtime::rpc::serve_stream(stream, events.clone(), token.clone()).await;
+                }
+            });
+            let responder = tokio::spawn(async move {
+                let mut requests = 0;
+                while let Some(event) = receiver.recv().await {
+                    let Event::Rpc { request, reply } = event else {
+                        panic!("unexpected event in control fixture");
+                    };
+                    requests += 1;
+                    let response = match request {
+                        Request::Status => Response::Status {
+                            height: 12,
+                            hash,
+                            peers: 3,
+                            mempool: 2,
+                            mined: 5,
+                            mined_in_chain: 4,
+                            syncing: true,
+                        },
+                        Request::Hash(12) => Response::Hash(Some(hash)),
+                        Request::Hash(13) => Response::Hash(None),
+                        Request::TransactionStatus(txid) => {
+                            let status = match txid.as_bytes() {
+                                bytes if bytes == &[0x00; 32] => TxStatus::Unknown,
+                                bytes if bytes == &[0x11; 32] => TxStatus::Pooled,
+                                bytes if bytes == &[0xab; 32] => TxStatus::Confirmed {
+                                    height: 12,
+                                    index: 2,
+                                },
+                                _ => panic!("unexpected transaction ID in control fixture"),
+                            };
+                            Response::TransactionStatus(status)
+                        }
+                        _ => panic!("unexpected request in control fixture"),
+                    };
+                    reply.send(response).unwrap();
+                }
+                requests
+            });
+
+            let snapshot = fetch_node(credentials.clone()).await.unwrap();
+            assert_eq!(snapshot.height, 12);
+            assert_eq!(snapshot.hash, expected_hash);
+            assert_eq!(snapshot.peers, 3);
+            assert_eq!(snapshot.mempool, 2);
+            assert_eq!(snapshot.mined, 5);
+            assert_eq!(snapshot.mined_in_chain, 4);
+            assert!(snapshot.syncing);
+
+            let block = lookup(credentials.clone(), LookupKind::Block, " 12 ".into())
+                .await
+                .unwrap();
+            assert_eq!(
+                block,
+                json!({"type": "block", "height": 12, "hash": expected_hash})
+            );
+            assert!(
+                lookup(credentials.clone(), LookupKind::Block, "13".into())
+                    .await
+                    .unwrap_err()
+                    .contains("rejected")
+            );
+            for (query, status) in [("00", "unknown"), ("11", "pooled"), ("AB", "confirmed")] {
+                let transaction = lookup(
+                    credentials.clone(),
+                    LookupKind::Transaction,
+                    query.repeat(32),
+                )
+                .await
+                .unwrap();
+                assert_eq!(transaction["txid"], query.to_ascii_lowercase().repeat(32));
+                assert_eq!(transaction["status"], status);
+                if status == "confirmed" {
+                    assert_eq!(transaction["height"], 12);
+                    assert_eq!(transaction["index"], 2);
+                }
+            }
+            let unauthorized = Credentials {
+                token: "wrong-token".into(),
+                ..credentials
+            };
+            assert!(
+                fetch_node(unauthorized)
+                    .await
+                    .unwrap_err()
+                    .contains("authentication failed")
+            );
+            server.await.unwrap();
+            // A rejected token must never dispatch a request to the node.
+            assert_eq!(responder.await.unwrap(), 6);
+        })
+        .await
+        .expect("control service fixture timed out");
+    }
+
+    #[tokio::test]
+    async fn malformed_success_prefix_is_rejected() {
+        tokio::time::timeout(FIXTURE_TIMEOUT, async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let credentials = Credentials {
+                endpoint: listener.local_addr().unwrap().to_string(),
+                token: "fixture-token".into(),
+            };
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut stream = BufReader::new(stream);
+                let mut line = String::new();
+                stream.read_line(&mut line).await.unwrap();
+                assert_eq!(line, "auth fixture-token\n");
+                stream.get_mut().write_all(b"ok\n").await.unwrap();
+                line.clear();
+                stream.read_line(&mut line).await.unwrap();
+                assert_eq!(line, "status\n");
+                let reply = format!(
+                    "okay height=12 hash={} peers=3 mempool=2 mined=5 in_chain=4 syncing=false\n",
+                    "00".repeat(32)
+                );
+                stream.get_mut().write_all(reply.as_bytes()).await.unwrap();
+            });
+            assert!(
+                fetch_node(credentials)
+                    .await
+                    .unwrap_err()
+                    .contains("invalid control reply")
+            );
+            server.await.unwrap();
+        })
+        .await
+        .expect("malformed reply fixture timed out");
     }
 }

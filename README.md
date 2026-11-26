@@ -45,8 +45,10 @@ workspace/
 ```
 
 Run GUI Cargo and Git commands from `gui/`. It has its own manifest, lockfile,
-and Git history. Cargo uses this checkout's lockfile and registry configuration;
-the RandomX source patch is loaded from `../dependency/patches/`, and the
+and Git history. GUI registry dependencies are fetched from crates.io and cached
+by Cargo; the core's offline registry configuration does not apply here.
+After an online build or `cargo fetch --locked`, GUI checks can use `--offline`.
+The RandomX source patch is loaded from `../dependency/patches/`, and the
 Rust-compatible bindgen patch from `../dependency/registry/bindgen/`. The pinned
 core dependencies must therefore be prepared before building. Commit GUI
 changes here separately from node or dependency changes.
@@ -116,6 +118,10 @@ The GUI saves the node mode, network, onion peers, and external control address 
 `~/.config/kryptos/settings.toml`. Existing URL-based settings from the former
 HTTP client fall back to the new default address; enter and save the control
 address again if needed.
+
+Connection preferences are validated for the selected node mode. An incomplete
+external address does not block the built-in node, and unfinished onion peers
+do not block external-node mode.
 
 The node token is masked in the GUI, kept in memory, and excluded from the
 settings file. Enter it again after reopening the application. External connections

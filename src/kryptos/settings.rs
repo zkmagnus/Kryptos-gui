@@ -34,7 +34,9 @@ impl Settings {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        validate_endpoint(&self.node_endpoint)?;
+        if !self.embedded_node {
+            return validate_endpoint(&self.node_endpoint);
+        }
         self.network.parse::<runtime::config::Network>()?;
         for peer in self.peer_list() {
             runtime::tor::validate_endpoint(&peer)
@@ -100,7 +102,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn persisted_settings_only_contain_loopback_endpoints() {
+    fn settings_exclude_credentials_and_require_loopback_for_external_nodes() {
         let serialized = toml::to_string(&Settings::default()).unwrap();
         let table: toml::Table = toml::from_str(&serialized).unwrap();
         assert_eq!(table.len(), 4);
@@ -108,10 +110,45 @@ mod tests {
         assert!(!serialized.contains("token"));
         assert!(Settings::default().validate().is_ok());
         let external = Settings {
+            embedded_node: false,
             node_endpoint: "192.0.2.1:18440".into(),
             ..Settings::default()
         };
         assert!(external.validate().is_err());
+    }
+
+    #[test]
+    fn incomplete_external_endpoint_does_not_block_embedded_mode() {
+        let mut settings = Settings {
+            node_endpoint: "127.0.0.1:".into(),
+            ..Settings::default()
+        };
+        assert!(settings.validate().is_ok());
+        let serialized = toml::to_string(&settings).unwrap();
+        let loaded: Settings = toml::from_str(&serialized).unwrap();
+        assert!(loaded.validate().is_ok());
+        settings.embedded_node = false;
+        assert!(settings.validate().is_err());
+        settings.node_endpoint = "127.0.0.1:18440".into();
+        assert!(settings.validate().is_ok());
+    }
+
+    #[test]
+    fn incomplete_embedded_preferences_do_not_block_external_mode() {
+        let mut settings = Settings {
+            embedded_node: false,
+            peers: "unfinished.onion:".into(),
+            ..Settings::default()
+        };
+        assert!(settings.validate().is_ok());
+        let serialized = toml::to_string(&settings).unwrap();
+        let loaded: Settings = toml::from_str(&serialized).unwrap();
+        assert!(!loaded.embedded_node);
+        assert!(loaded.validate().is_ok());
+        settings.embedded_node = true;
+        assert!(settings.validate().is_err());
+        settings.peers.clear();
+        assert!(settings.validate().is_ok());
     }
 
     #[test]
