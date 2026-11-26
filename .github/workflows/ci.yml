@@ -4,28 +4,62 @@ name: CI
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: "2"
 
-permissions: {}
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: gui
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          path: gui
+
+      - name: Read pinned core revision
+        id: core-revision
+        shell: bash
+        run: |
+          read -r core_revision < CORE_REV
+          [[ "$core_revision" =~ ^[0-9a-f]{40}$ ]]
+          printf 'revision=%s\n' "$core_revision" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned Kryptos core
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: zkmagnus/Kryptos
+          ref: ${{ steps.core-revision.outputs.revision }}
+          path: Kryptos
+          persist-credentials: false
+
+      - name: Prepare pinned core dependencies
+        run: python3 ../Kryptos/scripts/setup_dependencies.py
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential cmake clang libclang-dev pkg-config libssl-dev libsqlite3-dev liblzma-dev libzstd-dev
 
       - name: setup just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
 
-      - name: install stable Rust
-        run: rustup toolchain install stable --component rustfmt --component clippy --profile minimal
-      - name: use stable Rust
-        run: rustup default stable
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.100.0 --component rustfmt --component clippy --profile minimal
+      - name: Use pinned Rust
+        run: rustup override set 1.100.0
 
       - name: rust cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.9.1
+        with:
+          workspaces: gui -> target
 
       - name: check
         run: just check

@@ -278,7 +278,11 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
     .width(230)
     .height(Length::Fill);
 
-    let connection = if app.node_busy && app.node.is_none() {
+    let connection = if app.closing {
+        "◌  SHUTTING DOWN"
+    } else if app.embedded_busy {
+        "◌  NODE CHANGING STATE"
+    } else if app.node_busy && app.node.is_none() {
         "◌  CONNECTING"
     } else if app.node_connected && app.node.is_some() {
         "●  NODE CONNECTED"
@@ -307,8 +311,8 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
             "Wallet commands remain available in the Kryptos CLI.",
         ),
         Tab::Settings => (
-            "Connect your workspace",
-            "Connect to the local Kryptos control socket.",
+            "Your desktop node",
+            "Manage your node and network preferences.",
         ),
         Tab::About => (
             "Kryptos",
@@ -361,6 +365,17 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
         Tab::About => about(),
     };
     let mut body = column![header].spacing(24);
+    if app.settings.embedded_node {
+        if let Some(status) = &app.tor_status {
+            body = body.push(muted(format!("Built-in node · {status}")));
+        }
+        if app.node.as_ref().is_some_and(|node| node.peers == 0) && !app.closing {
+            body = body.push(notice("Waiting for peers. Add a reachable onion peer in Settings to join an existing network.", false));
+        }
+    }
+    if app.closing {
+        body = body.push(notice("Saving node state and shutting down…", false));
+    }
     if let Some(error) = &app.node_error
         && !matches!(app.tab, Tab::Settings | Tab::Wallet | Tab::About)
     {
@@ -371,7 +386,8 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
         && matches!(app.tab, Tab::Overview | Tab::Network | Tab::Mining)
     {
         body = body.push(muted(format!(
-            "Last node update {updated} · Refreshes every 15 seconds"
+            "Last node update {updated} · Refreshes every {} seconds",
+            if app.settings.embedded_node { 3 } else { 15 }
         )));
     }
     row![
@@ -395,14 +411,16 @@ pub(crate) fn view(app: &App) -> Element<'_, Message> {
 fn overview(app: &App) -> Element<'_, Message> {
     let Some(node) = &app.node else {
         return empty(
-            "Your node is one connection away",
-            "Start Kryptos, then connect with its local control address and node token.",
+            "Your Kryptos node",
+            "Manage the built-in node or connect an existing node in Settings.",
         );
     };
     let sync_label = if node.syncing {
         "Synchronizing"
+    } else if node.peers == 0 {
+        "Waiting for peers"
     } else {
-        "Synchronized"
+        "Up to date with connected peers"
     };
     let cards = row![
         metric("CHAIN HEIGHT", node.height.to_string(), sync_label),
@@ -501,14 +519,14 @@ fn mining(app: &App) -> Element<'_, Message> {
     column![
         panel(column![
             eyebrow("NODE MINING"),
-            text("Mining readiness is not exposed by control").size(22).font(BOLD).color(AMBER),
+            text(if app.settings.embedded_node { "Mining controls are coming next" } else { "Mining readiness is not exposed by control" }).size(22).font(BOLD).color(AMBER),
             muted("Online mining waits for Tor, an authenticated outbound peer, completed sync, and a stable ready period."),
-            muted("Configure mining with the Kryptos CLI. This view shows the block counts included in node status."),
+            muted(if app.settings.embedded_node { "Mining is disabled for the built-in node in this stage. Desktop wallet and mining controls will be added separately." } else { "Mining is managed by your external node. This view shows the block counts included in node status." }),
         ].spacing(12)),
         row![
             metric("MINED IN CHAIN", node.mined_in_chain.to_string(), "Locally mined, accepted blocks"),
             metric("MINED TOTAL", node.mined.to_string(), "Blocks mined since startup"),
-            metric("CHAIN HEIGHT", node.height.to_string(), if node.syncing { "Synchronizing" } else { "Synchronized" }),
+            metric("CHAIN HEIGHT", node.height.to_string(), if node.syncing { "Synchronizing" } else if node.peers == 0 { "Waiting for peers" } else { "Up to date with connected peers" }),
         ].spacing(14),
         panel(column![
             section("Current node status", "The line control protocol exposes a compact status snapshot."),
@@ -616,7 +634,7 @@ fn wallet(_app: &App) -> Element<'_, Message> {
     panel(column![
         section("Wallet tools", "Wallet databases are opened directly by the Kryptos CLI."),
         horizontal_rule(1),
-        muted("The removed wallet daemon is not needed for wallet commands."),
+        muted("Desktop wallet controls are the next stage. The commands below use the separate Kryptos core CLI and an external node; they do not run in the desktop executable."),
         container(
             text("kryptos balance --network main --wallet wallet.redb --rpc 127.0.0.1:18440 --rpc-token-file /path/to/rpc.token\nkryptos address --network main --wallet wallet.redb")
                 .font(MONO)
@@ -631,57 +649,155 @@ fn wallet(_app: &App) -> Element<'_, Message> {
 }
 
 fn settings(app: &App) -> Element<'_, Message> {
-    let node_button = button(
-        text(if app.node_busy {
-            "Connecting…"
+    let editable = !app.embedded_active && !app.embedded_busy && !app.closing;
+    let mode = panel(
+        column![
+            section(
+                "Node mode",
+                "The built-in node starts automatically when Kryptos opens."
+            ),
+            row![
+                button(text(if app.settings.embedded_node {
+                    "● Built-in node"
+                } else {
+                    "Built-in node"
+                }))
+                .on_press_maybe(editable.then_some(Message::UseEmbeddedNode(true)))
+                .padding([12, 18])
+                .style(secondary_style),
+                button(text(if app.settings.embedded_node {
+                    "External node"
+                } else {
+                    "● External node"
+                }))
+                .on_press_maybe(editable.then_some(Message::UseEmbeddedNode(false)))
+                .padding([12, 18])
+                .style(secondary_style),
+            ]
+            .spacing(10),
+        ]
+        .spacing(14),
+    );
+    let mut node = if app.settings.embedded_node {
+        let status = if app.closing {
+            "Shutting down…"
+        } else if app.embedded_stopping {
+            "Stopping…"
+        } else if app.embedded_busy {
+            "Starting…"
+        } else if app.node_error.is_some() {
+            "Needs attention — see the error below"
+        } else if app.node_connected {
+            "Running"
+        } else if app.embedded_active {
+            "Needs attention — stop before retrying"
         } else {
-            "Connect node"
-        })
-        .size(13)
-        .font(BOLD),
-    )
-    .on_press_maybe((!app.node_busy).then_some(Message::ConnectNode))
-    .padding([12, 18])
-    .style(action_style);
-    let node_disconnect = button(text("Disconnect").size(13))
-        .on_press_maybe((app.node_connected || app.node_busy).then_some(Message::DisconnectNode))
-        .padding([12, 18])
-        .style(secondary_style);
-    let mut node = column![
-        section(
-            "Kryptos node",
-            "Read status, block hashes by height, and transaction status over the control protocol."
-        ),
-        muted("LOCAL CONTROL ADDRESS"),
-        text_input("127.0.0.1:18440", &app.settings.node_endpoint)
-            .on_input(Message::NodeEndpointChanged)
-            .size(14)
-            .padding(12),
-        muted("NODE TOKEN · rpc.token"),
-        text_input("Paste your node token", &app.node_token)
-            .secure(true)
-            .on_input(Message::NodeTokenChanged)
-            .size(14)
-            .padding(12),
-        row![node_button, node_disconnect].spacing(10),
-    ]
-    .spacing(12);
+            "Stopped"
+        };
+        let peers = text_input(
+            "peer.onion:19000, another-peer.onion:19000",
+            &app.settings.peers,
+        )
+        .on_input_maybe(editable.then_some(Message::PeersChanged))
+        .size(14)
+        .padding(12);
+        let data = app
+            .settings
+            .chain_directory()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|error| error);
+        let mut built_in = column![
+            section("Built-in node", "Your blockchain runs inside this application."),
+            key_value("Status", status.to_owned()),
+            muted("NETWORK"),
+            row![
+                button(text(if app.settings.network == "main" { "● Mainnet" } else { "Mainnet" }))
+                    .on_press_maybe(editable.then_some(Message::NetworkChanged("main".into())))
+                    .padding([10, 16]).style(secondary_style),
+                button(text(if app.settings.network == "test" { "● Testnet" } else { "Testnet" }))
+                    .on_press_maybe(editable.then_some(Message::NetworkChanged("test".into())))
+                    .padding([10, 16]).style(secondary_style),
+            ].spacing(10),
+            muted("ONION PEERS · separate with commas"),
+            peers,
+            muted("There are no built-in bootstrap peers yet. Add a reachable peer to join an existing chain. Stop the node before changing its network or peers."),
+            muted("BLOCKCHAIN DATA"),
+            text(data).size(12).font(MONO).wrapping(Wrapping::WordOrGlyph),
+            row![
+                button(text("Start node").size(13).font(BOLD))
+                    .on_press_maybe(editable.then_some(Message::StartEmbeddedNode))
+                    .padding([12, 18]).style(action_style),
+                button(text("Stop node").size(13))
+                    .on_press_maybe((app.embedded_active && !app.embedded_stopping && !app.closing).then_some(Message::StopEmbeddedNode))
+                    .padding([12, 18]).style(secondary_style),
+            ].spacing(10),
+        ].spacing(14);
+        if let Some(tor) = &app.tor_status {
+            built_in = built_in.push(key_value("Tor", tor.clone()));
+        }
+        if let Some(onion) = &app.onion_address {
+            built_in = built_in.push(muted("YOUR NODE ADDRESS")).push(
+                text(onion)
+                    .font(MONO)
+                    .size(12)
+                    .wrapping(Wrapping::WordOrGlyph),
+            );
+        }
+        built_in
+    } else {
+        column![
+            section(
+                "External node",
+                "Connect to a node you already run on this computer."
+            ),
+            muted("LOCAL CONTROL ADDRESS"),
+            text_input("127.0.0.1:18440", &app.settings.node_endpoint)
+                .on_input(Message::NodeEndpointChanged)
+                .size(14)
+                .padding(12),
+            muted("NODE TOKEN"),
+            text_input("Paste your node token", &app.node_token)
+                .secure(true)
+                .on_input(Message::NodeTokenChanged)
+                .size(14)
+                .padding(12),
+            row![
+                button(
+                    text(if app.node_busy {
+                        "Connecting…"
+                    } else {
+                        "Connect node"
+                    })
+                    .size(13)
+                    .font(BOLD)
+                )
+                .on_press_maybe((!app.node_busy).then_some(Message::ConnectNode))
+                .padding([12, 18])
+                .style(action_style),
+                button(text("Disconnect").size(13))
+                    .on_press_maybe(
+                        (app.node_connected || app.node_busy).then_some(Message::DisconnectNode)
+                    )
+                    .padding([12, 18])
+                    .style(secondary_style),
+            ]
+            .spacing(10),
+            muted("The token stays in memory. Closing Kryptos leaves your external node running."),
+        ]
+        .spacing(14)
+    };
     if let Some(error) = &app.node_error {
         node = node.push(notice(error, true));
     }
-    if app.node_busy && app.node.is_none() {
-        node = node.push(muted("Connecting to node…"));
-    } else if app.node_connected && app.node.is_some() {
-        node = node.push(text("● Node connected").color(ACCENT).size(13));
-    }
     let mut content = column![
+        mode,
         panel(node),
-        panel(column![
-            section("Connection preferences", "Save the local control address for your next session."),
-            muted("The node token stays in memory for this session. The GUI accepts only an IPv4 loopback address; peer traffic remains inside Kryptos's embedded Tor transport."),
-            button(text("Save control address").size(13).font(BOLD)).on_press(Message::SaveSettings).padding([12, 18]).style(secondary_style),
-        ].spacing(14)),
-    ].spacing(18);
+        button(text("Save preferences").size(13).font(BOLD))
+            .on_press_maybe((!app.closing).then_some(Message::SaveSettings))
+            .padding([12, 18])
+            .style(action_style),
+    ]
+    .spacing(18);
     if let Some(status) = &app.settings_status {
         content = content.push(muted(status));
     }
@@ -692,8 +808,8 @@ fn about() -> Element<'static, Message> {
     column![
         panel(column![
             text("◇  KRYPTOS").size(36).font(BOLD).color(ACCENT),
-            text("Desktop dashboard for the Kryptos blockchain.").size(19),
-            muted("Kryptos brings a basic node status and chain lookup view to the desktop. It connects through the node's authenticated local control service."),
+            text("Desktop application for the Kryptos blockchain.").size(19),
+            muted("Kryptos runs a built-in node with embedded Tor, or connects to an existing local node. Wallet tools are coming in a later stage."),
             button(text("View Kryptos on GitHub").size(13).font(BOLD)).on_press(Message::OpenProject).padding([12, 18]).style(action_style),
         ].spacing(20)),
         row![

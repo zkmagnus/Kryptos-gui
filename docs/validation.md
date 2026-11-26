@@ -1,16 +1,61 @@
-# Kryptos GUI validation
+# Kryptos desktop node validation
 
-The GUI now uses the node's authenticated line-oriented control service on an
-IPv4 loopback socket. It requests `status`, `hash <height>`, and
-`txstatus <txid>`. It has no HTTP or JSON-RPC client and no wallet-daemon
-connection. Wallet activity remains available through the Kryptos CLI.
+Validated locally on Linux, November 26, 2026, using Rust 1.100.0 and the core
+revision in `CORE_REV`.
 
-The control client validates loopback addresses and token shape, authenticates
-before sending commands, bounds reply size, and uses a request timeout. Its
-status view only displays fields returned by the node control protocol; detailed
-peer data, block bodies, mempool IDs, and wallet balances are not available from
-that protocol.
+## Stage one: embedded node lifecycle
 
-The prior validation report covered HTTP fixtures and the previous client. The
-line-protocol migration compiled with `cargo +1.100.0 check --offline`; the GUI
-test suite was not run for this change.
+The default desktop mode runs the node and embedded Tor through Rust APIs on a
+separate Tokio runtime. It does not spawn a CLI process, bind an RPC listener,
+or handle an RPC token. External local-node mode retains the authenticated
+line-oriented control client.
+
+Checks completed successfully:
+
+```text
+cargo check --offline --locked --all-targets
+cargo fmt --all -- --check
+cargo clippy --offline --locked --all-targets -- -D warnings
+cargo test --offline --locked
+```
+
+All 15 tests passed, covering:
+
+- A real offline node opens a persistent chain, returns status and explorer
+  lookups, stops, and reopens the same chain.
+- A second owner cannot open an occupied database, but succeeds after shutdown.
+- Dropping the service clients shuts down their owned node and releases storage.
+- Stop invalidates an unpolled startup, preventing delayed startup after close.
+- Malformed network and onion peer settings fail before opening storage.
+- Stale asynchronous replies cannot reconnect a stopped node or replace an
+  explorer query result.
+- Network/mode edits are blocked while the desktop owns a node; Stop can cancel
+  startup; a failed shutdown retains ownership for retry.
+- Failed embedded refreshes hide stale chain data while allowing status retries.
+- Credentials stay out of event debug output and persisted preferences; legacy
+  endpoint-only settings load with embedded-node defaults.
+
+An initial unoptimized test build exceeded the original 30-second startup
+allowance while constructing the proof verifier. The final test profile matches
+the core optimization settings, and startup has a separate bounded 180-second
+allowance. The final full suite completed in approximately 13 seconds after
+compilation. Regular control requests remain bounded separately.
+
+The initial registry build of `bindgen 0.58.1` emitted a future-incompatibility
+notice about trailing semicolons in logging macros. The GUI now patches bindgen
+to the already-corrected source in the pinned core dependency snapshot at
+`../dependency/registry/bindgen/`. No dependency sources were edited for this fix.
+The follow-up `cargo check --offline --all-targets --future-incompat-report`
+passed and reported zero dependencies with future-incompatible warnings.
+Ordinary legacy warnings from this old bindgen source are now visible because
+it is a local path dependency; they do not fail this build check.
+
+## Limits
+
+These tests use isolated temporary databases with external networking disabled.
+Public Tor bootstrap, peer synchronization, interactive window rendering/close,
+Windows/macOS builds, and installer packaging have not been exercised in this
+session. The Iced event state and shutdown service are tested separately.
+
+No wallets, keys, transactions, or existing user chain databases were opened or
+modified. Desktop wallet and mining controls remain outside this stage.

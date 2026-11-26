@@ -1,16 +1,21 @@
 [package]
 name = "kryptos"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.100"
 authors = ["Luis Schwab <dev@luisschwab.net>"]
-description = "A desktop status dashboard for the Kryptos shielded blockchain"
+description = "A desktop application with an embedded Kryptos shielded blockchain node"
 repository = "https://github.com/zkmagnus/Kryptos-gui"
 readme = "README.md"
-license = "MIT"
+license = "GPL-3.0-or-later"
 keywords = ["kryptos", "wallet", "desktop", "privacy", "blockchain"]
 
 [workspace]
+
+[patch.crates-io]
+randomx-bindings-sys = { path = "../dependency/patches/randomx-bindings-sys" }
+# Preserve the core snapshot's Rust-compatibility fixes in GUI builds too.
+bindgen = { path = "../dependency/registry/bindgen" }
 
 [[bin]]
 name = "kryptos"
@@ -23,10 +28,39 @@ hot-reloading = ["iced/hot"]
 name = "Kryptos"
 
 [dependencies]
+runtime = { path = "../Kryptos/crates/runtime" }
+crypto = { path = "../Kryptos/crates/crypto" }
+protocol = { path = "../Kryptos/crates/protocol" }
 dirs = "=6.0.0"
 iced = { version = "=0.14.0", default-features = false, features = ["tiny-skia", "crisp", "web-colors", "thread-pool", "linux-theme-detection", "x11", "wayland", "tokio"] }
 open = "=5.3.5"
-serde = { version = "=1.0.228", features = ["derive"] }
+serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "=1.52.3", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
-toml = "=1.1.2"
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+toml = "=1.1.8"
+
+# Circuit key generation also runs when starting an embedded node in a debug
+# build. Optimize curve/proof arithmetic so development startup stays usable.
+[profile.dev.package.halo2_proofs]
+opt-level = 3
+
+[profile.dev.package.pasta_curves]
+opt-level = 3
+
+[profile.dev.package.halo2_gadgets]
+opt-level = 3
+
+# Match the node workspace's test profile for offline lifecycle tests.
+[profile.test]
+opt-level = 1
+debug = 0
+incremental = false
+
+[profile.test.package.halo2_proofs]
+opt-level = 3
+
+[profile.test.package.pasta_curves]
+opt-level = 3
+
+[profile.test.package.halo2_gadgets]
+opt-level = 3
